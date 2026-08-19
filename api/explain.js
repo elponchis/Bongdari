@@ -2,26 +2,67 @@
 //
 // 쓰는 법:
 //   1) Cloudflare 무료 계정 (카드 등록 불필요)
-//   2) 대시보드 우측의 Account ID  →  환경변수 CF_ACCOUNT_ID
-//   3) My Profile → API Tokens → "Workers AI" 템플릿으로 토큰 발급
-//                               →  환경변수 CF_API_TOKEN
+//   2) 대시보드에서 Ctrl+K → "Copy account ID"  →  환경변수 CF_ACCOUNT_ID
+//   3) Workers AI → Use REST API 로 토큰 발급   →  환경변수 CF_API_TOKEN
+//      (일반 API Tokens 페이지에서 만들 경우 Workers AI 의 Read + Edit 둘 다 필요)
 //
 // 왜 Gemini에서 옮겼나:
 //   Gemini 무료 등급은 어느 모델이든 하루 20회(RPD 20)가 상한이라
 //   리딩 클럽 용도로 쓸 수 없었다. Workers AI 는 하루 10,000 뉴런을
-//   무료로 주는데, 이 앱은 회당 약 14 뉴런을 쓰므로 하루 700회쯤 된다.
-//   이전 Gemini 구현은 api/_explain-gemini.js 에 그대로 남겨두었다.
+//   무료로 준다. 이전 Gemini 구현은 api/_explain-gemini.js 에 남겨두었다.
 //
 // index.html 은 고칠 필요 없다. 주고받는 형식({word, context} → {text})이 같다.
 
-// 무료 등급에서는 어느 모델을 골라도 회당 뉴런이 14 안팎으로 비슷하다.
-// (영어 원문이라 입력 토큰이 적고, 비용 대부분이 한국어 출력 쪽이라 그렇다)
-// 그러니 값이 아니라 품질로 고르면 된다 — 30B급을 쓴다.
-// 한국어 답변이 어색하면 @cf/google/gemma-4-26b-a4b-it 로 바꿔 보라.
-const MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+// 모델 선택 주의 — 추론(thinking) 모델을 쓰면 안 된다.
+// 처음에 @cf/qwen/qwen3-30b-a3b-fp8 을 썼다가 사고 과정을 그대로 쏟아냈다:
+// "Okay, let's tackle this question..." 하며 자기 답을 영어로 재검토하고
+// 같은 답을 여러 번 반복해서 화면에 그대로 노출됐다. 출력 토큰도 크게 낭비된다.
+// 바꾸려면 반드시 비추론 instruct 모델로 고를 것.
+const MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
 const MAX_CONTEXT = 1200; // 문맥 길이 상한 (글자)
-const MAX_TOKENS = 800;   // 이 값을 안 주면 기본값이 낮아 답이 잘린다
+const MAX_TOKENS = 500;   // 안 주면 기본값이 낮아 답이 잘린다
+
+// 원문이 영어라 모델이 영어로 답해버리기 쉽다. system 으로 못박는다.
+const SYSTEM_PROMPT =
+`당신은 한국인 독서 모임을 돕는 조수입니다. 영어 책의 한 대목에서 특정 단어가
+그 문맥에서 어떤 뜻으로 쓰였는지 설명합니다.
+
+규칙:
+- 반드시 한국어로만 답한다. 지문이 영어여도 답변은 한국어다.
+- 첫 문장은 사전적 의미, 다음은 이 문맥에서의 구체적 의미.
+- 전체 2~4문장. 머리말·목록·코드블록·영어 해설을 붙이지 않는다.
+- 설명만 출력하고, 답을 쓴 뒤에는 아무 말도 덧붙이지 않는다.`;
+
+// 모델이 사고 과정이나 군더더기를 섞어 내보내도 화면에는 답만 나가게 한다.
+function cleanAnswer(raw) {
+  let t = String(raw || "");
+
+  // 일부 모델은 사고 과정을 <think> 블록으로 내보낸다
+  t = t.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<\/?think>/gi, "");
+  // ``` 로 감싸는 경우가 있어 벗겨낸다
+  t = t.replace(/```[a-zA-Z]*\n?/g, "");
+  // 프롬프트 머리말을 복창하는 경우
+  t = t.replace(/^\s*\[?(Answer|Question|Passage|답변|지문)\]?\s*:?\s*$/gim, "");
+
+  // 답을 쓴 뒤 영어로 자기 답을 재검토하며 계속 떠드는 경우가 있다.
+  // 답변은 한국어여야 하므로, 한국어 줄만 모으고 한글이 없는 줄이
+  // 나오면 군더더기가 시작된 것으로 보고 끊는다.
+  const kept = [];
+  for (const line of t.split("\n")) {
+    const s = line.trim();
+    if (!s) {
+      if (kept.length) break; // 답 이후의 빈 줄 = 여기서 끝
+      continue;
+    }
+    if (!/[가-힣]/.test(s)) {
+      if (kept.length) break; // 답 이후의 비한국어 줄 = 군더더기
+      continue;               // 답 이전이면 머리말이므로 버린다
+    }
+    kept.push(s);
+  }
+  return kept.join("\n").trim();
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -38,18 +79,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "word와 context가 필요합니다." });
   }
 
-  // 원문이 영어라 모델이 영어로 답해버리기 쉽다. 한국어를 여러 번 못박는다.
-  const prompt =
-`You are helping a Korean reading club understand an English book.
+  const userPrompt =
+`단어: "${String(word).slice(0, 80)}"
 
-Explain what the word or phrase "${String(word).slice(0, 80)}" means as it is used in the passage below.
-
-Rules:
-- Answer in Korean (한국어). This is required, even though the passage is English.
-- First give the dictionary meaning, then what it specifically means here.
-- 2 to 4 sentences total. No preamble, no bullet points.
-
-[Passage]
+지문:
 ${String(context).slice(0, MAX_CONTEXT)}`;
 
   const url =
@@ -63,7 +96,17 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.CF_API_TOKEN}`,
       },
-      body: JSON.stringify({ prompt, max_tokens: MAX_TOKENS, temperature: 0.3 }),
+      // prompt 가 아니라 messages 를 써야 채팅 템플릿이 적용된다.
+      // prompt 로 보내면 모델이 "답변"이 아니라 "이어쓰기"를 해서
+      // 지문 머리말을 복창하고 끝없이 덧붙인다.
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+        max_completion_tokens: MAX_TOKENS,
+        temperature: 0.3,
+      }),
     });
 
     const data = await r.json().catch(() => null);
@@ -81,8 +124,14 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       return res.status(r.status === 200 ? 502 : r.status).json({ error: msg });
     }
 
-    const text = String(data?.result?.response || "").trim();
+    const rawText =
+      data?.result?.response ??
+      data?.result?.choices?.[0]?.message?.content ??
+      "";
+    const text = cleanAnswer(rawText);
+
     if (!text) {
+      console.warn("정리 후 남은 답이 없음. 원본:", String(rawText).slice(0, 500));
       return res.status(200).json({ text: "설명이 비어 있었어요. 다시 시도해 주세요." });
     }
 
