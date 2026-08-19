@@ -373,19 +373,13 @@
       </div><!-- /paneDict -->
 
       <div class="pane hidden" id="paneBook">
-        <div class="wbgate" id="wbGate">
-          <p id="wbGateMsg">단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다.</p>
-          <input id="wbName" placeholder="이름 (예: 지수)" autocomplete="nickname" />
-          <input id="wbPass" type="password" placeholder="동아리 암호" autocomplete="current-password" />
-          <button class="btn" id="wbEnter" style="margin-top:6px">들어가기</button>
-          <div class="err hidden" id="wbErr"></div>
-        </div>
-        <div class="wbhead hidden" id="wbHead">
+        <div class="wbhead" id="wbHead">
           <span id="wbWho"></span>
           <span class="spacer"></span>
-          <button class="btn ghost sm" id="wbRefresh">새로 고침</button>
+          <button class="btn ghost sm" id="wbImportBtn">가져오기</button>
+          <button class="btn ghost sm" id="wbExport">내보내기</button>
         </div>
-        <div class="wblist hidden" id="wbList"></div>
+        <div class="wblist" id="wbList"></div>
       </div>
     </section>
 
@@ -444,6 +438,7 @@
   </main>
 
   <input type="file" id="fileInput" accept="application/pdf,.pdf" />
+  <input type="file" id="wbImport" accept="application/json,.json" />
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -465,29 +460,6 @@ const state = {
   lastExplain:null,    // 방금 받은 해설 {kind, term, page, note} — 단어장 저장용
 };
 
-/* 동아리 신원: 이름과 (필요하면) 공유 암호. 이 브라우저에만 기억한다.
-   mode 는 서버에 한 번 물어봐서 정한다:
-     "open"   = CLUB_PASSWORD 가 없는 배포 → 이름만 있으면 된다
-     "locked" = 암호가 걸린 배포          → 이름 + 암호가 필요하다 */
-const club = {
-  name: localStorage.getItem("bongdari.name") || "",
-  pass: localStorage.getItem("bongdari.pass") || "",
-  mode: "unknown",
-  get ok(){
-    if(!this.name) return false;
-    return this.mode === "open" ? true : !!this.pass;
-  },
-  save(name, pass){
-    this.name = name; this.pass = pass;
-    localStorage.setItem("bongdari.name", name);
-    localStorage.setItem("bongdari.pass", pass);
-  },
-  clear(){
-    this.name = ""; this.pass = "";
-    localStorage.removeItem("bongdari.name");
-    localStorage.removeItem("bongdari.pass");
-  },
-};
 
 const CONTEXT = 60;    // chars of context on each side
 
@@ -619,8 +591,8 @@ function onBookReady(total){
   $("#pgTotal").textContent = total.toLocaleString();
   showPage(1);
 
-  // 이 책의 단어장을 미리 받아 둔다
-  initWordbook();
+  // 이 책의 단어장을 띄운다 (브라우저에 저장돼 있던 것)
+  renderWordbook(wbLoad(state.bookId));
 }
 
 function showEmptyMessage(msg){
@@ -1082,8 +1054,7 @@ async function callExplain(payload, loadingLabel, saveMeta){
     body.textContent = text || "설명이 비어 있었어요. 다시 시도해 주세요.";
     if(text && saveMeta){
       state.lastExplain = { ...saveMeta, note:text };
-      // 암호를 아직 안 넣었으면 버튼을 숨긴다 — 눌러도 게이트로 갈 뿐이니
-      $("#saveBtn").classList.toggle("hidden", !club.ok);
+      $("#saveBtn").classList.remove("hidden");
     }
   }catch(err){
     console.error("[해설 실패]", {status, bodyText, err});
@@ -1124,12 +1095,65 @@ function explainPassage(passage){
 }
 
 /* ============================================================
-   공유 단어장
+   단어장 — 이 브라우저에만 저장한다
    ------------------------------------------------------------
-   검색 결과를 보고 나면 아무것도 남지 않던 문제를 메우는 부분.
-   책 단위로 모이고(bookId = PDF 내용 해시), 누가 넣었는지 남는다.
+   혼자 쓰는 도구라 서버를 두지 않는다. PDF 를 브라우저 밖으로 내보내지
+   않는 이 앱의 방식과 맞고, 계정·암호·환경변수가 전부 필요 없어진다.
+   여러 사람이 함께 쓰게 되면 api/_wordbook-shared.js 를 되살리면 된다
+   (그 구현은 지우지 않고 남겨두었다).
+
+   localStorage 는 브라우저 데이터를 지우면 함께 사라지므로
+   내보내기·가져오기를 둔다.
    ============================================================ */
-const WB = { endpoint:"/api/wordbook" };
+const WB_LIMIT = 1000;                        // 책 하나당 항목 상한
+const wbKey = book => `bongdari.wb.${book}`;
+
+function wbLoad(book){
+  if(!book) return [];
+  try{
+    const arr = JSON.parse(localStorage.getItem(wbKey(book)) || "[]");
+    return Array.isArray(arr) ? arr : [];
+  }catch(err){
+    console.warn("[단어장] 읽기 실패", err);
+    return [];
+  }
+}
+
+// 저장 공간이 찼을 때 조용히 실패하면 담은 줄 알고 잃는다. 결과를 돌려준다.
+function wbWrite(book, entries){
+  try{
+    localStorage.setItem(wbKey(book), JSON.stringify(entries));
+    return true;
+  }catch(err){
+    console.error("[단어장] 저장 실패", err);
+    return false;
+  }
+}
+
+// 성공하면 빈 문자열, 실패하면 사용자에게 보일 이유를 돌려준다.
+function wbAdd(entry){
+  if(!state.bookId) return "먼저 책을 열어 주세요. 단어장은 책마다 따로 모입니다.";
+  const entries = wbLoad(state.bookId);
+  if(entries.length >= WB_LIMIT)
+    return `이 책의 단어장이 가득 찼어요(${WB_LIMIT}개). 오래된 항목을 지워 주세요.`;
+
+  entries.unshift({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+    at: Date.now(),
+    ...entry,
+  });
+  if(!wbWrite(state.bookId, entries))
+    return "브라우저 저장 공간이 부족해요. 내보낸 뒤 오래된 항목을 지워 주세요.";
+
+  renderWordbook(entries);
+  return "";
+}
+
+function wbRemove(id){
+  const entries = wbLoad(state.bookId).filter(e => e.id !== id);
+  wbWrite(state.bookId, entries);
+  renderWordbook(entries);
+}
 
 /* ---- 탭 ---- */
 const TABS = { search:["#tabSearch","#paneSearch"], dict:["#tabDict","#paneDict"], book:["#tabBook","#paneBook"] };
@@ -1143,139 +1167,26 @@ function switchTab(which){
     $(tab).classList.toggle("active", on);
     $(pane).classList.toggle("hidden", !on);
   }
-  if(which === "book") initWordbook();
-  if(which === "dict"){
-    probeMode();               // 담기 버튼이 바로 동작하도록 미리 확인
-    $("#dictTerm").focus();
-  }
+  if(which === "book") renderWordbook(wbLoad(state.bookId));
+  if(which === "dict") $("#dictTerm").focus();
 }
-
-async function initWordbook(){
-  await probeMode();
-  syncWordbookGate();
-  if(club.ok && state.bookId) loadWordbook();
-}
-
-/* ---- 잠김 여부 확인 ----
-   암호가 걸린 배포인지 서버에 한 번 물어본다. 암호 없이 GET 해 보고
-   401 이 오면 잠긴 것이다. 이걸 물어보지 않으면, 암호가 없는 배포에서도
-   사용자에게 암호를 입력하라고 요구하게 된다. */
-async function probeMode(){
-  if(club.mode !== "unknown") return club.mode;
-  const book = state.bookId || "00000000";
-  try{
-    const res = await fetchWithTimeout(`${WB.endpoint}?book=${encodeURIComponent(book)}`, {}, 15000);
-    club.mode = res.status === 401 ? "locked" : (res.ok ? "open" : "unknown");
-  }catch(err){
-    console.warn("[단어장] 잠김 여부 확인 실패", err);
-    club.mode = "unknown";
-  }
-  return club.mode;
-}
-
-/* ---- 신원 게이트 ---- */
-function syncWordbookGate(){
-  const on = club.ok;
-  const locked = club.mode !== "open";   // 확인 전이면 안전하게 암호를 묻는다
-  $("#wbGate").classList.toggle("hidden", on);
-  $("#wbHead").classList.toggle("hidden", !on);
-  $("#wbList").classList.toggle("hidden", !on);
-  $("#saveBtn").classList.toggle("hidden", !(on && state.lastExplain));
-
-  // 암호가 걸리지 않은 배포에서는 암호 칸을 아예 보여주지 않는다
-  $("#wbPass").classList.toggle("hidden", !locked);
-  $("#wbGateMsg").innerHTML = locked
-    ? "단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다."
-    : "단어장은 <b>함께 채워가는</b> 목록이에요.<br>누가 넣었는지 남기니 이름만 알려주세요.";
-
-  if(on) $("#wbWho").textContent = `${club.name} 님으로 참여 중`;
-  else { $("#wbName").value = club.name || ""; }
-}
-
-$("#wbEnter").onclick = async ()=>{
-  const name = $("#wbName").value.trim();
-  const pass = $("#wbPass").value;
-  const err = $("#wbErr");
-  if(!name){
-    err.textContent = "이름을 넣어 주세요.";
-    err.classList.remove("hidden");
-    return;
-  }
-  // 암호는 잠긴 배포에서만 요구한다
-  if(club.mode !== "open" && !pass){
-    err.textContent = "동아리 암호를 넣어 주세요.";
-    err.classList.remove("hidden");
-    return;
-  }
-  // 암호가 맞는지 실제로 한 번 불러 확인한다 — 틀린 걸 저장해두면
-  // 나중에 저장 시점에야 실패해서 원인을 헷갈리게 된다.
-  club.save(name, pass);
-  err.classList.add("hidden");
-  const ok = await loadWordbook({fromGate:true});
-  if(ok === false){
-    club.clear();
-    syncWordbookGate();
-    err.textContent = "암호가 맞지 않아요.";
-    err.classList.remove("hidden");
-    return;
-  }
-  $("#wbPass").value = "";
-  syncWordbookGate();
-};
-$("#wbPass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#wbEnter").click(); });
-
-$("#wbRefresh").onclick = ()=>loadWordbook();
 
 /* ---- 목록 ---- */
-async function loadWordbook(opts={}){
-  if(!club.ok) return;
+function renderWordbook(entries){
   const list = $("#wbList");
+  const badge = $("#wbCount");
+  entries = entries || [];
+  badge.textContent = entries.length;
+  badge.classList.toggle("hidden", entries.length === 0);
+  $("#wbWho").textContent = state.bookId
+    ? `${entries.length}개 · 이 브라우저에 저장됨`
+    : "책을 열면 그 책의 단어장이 열립니다";
+  $("#wbExport").disabled = entries.length === 0;
+
   if(!state.bookId){
     list.innerHTML = `<div class="empty"><p style="font-size:13px">먼저 책을 열어 주세요.<br>단어장은 책마다 따로 모입니다.</p></div>`;
     return;
   }
-  list.innerHTML = `<div class="empty"><p style="font-size:13px"><span class="spinner" style="display:inline-block;vertical-align:middle"></span> 단어장을 불러오는 중…</p></div>`;
-
-  try{
-    const res = await fetchWithTimeout(`${WB.endpoint}?book=${encodeURIComponent(state.bookId)}`,{
-      headers:{ "x-club-pass": club.pass }
-    });
-    // 저장해둔 암호가 무효가 된 경우(관리자가 CLUB_PASSWORD 를 바꿨을 때).
-    // 그냥 돌아가면 화면이 로딩 상태로 멈춰버리므로, 암호를 비우고
-    // 게이트로 되돌려 다시 넣게 한다. 암호 입력 중일 때는 그쪽에서 처리한다.
-    if(res.status === 401){
-      if(!opts.fromGate){
-        club.clear();
-        syncWordbookGate();
-        const err = $("#wbErr");
-        err.textContent = "암호가 바뀐 것 같아요. 다시 넣어 주세요.";
-        err.classList.remove("hidden");
-      }
-      return false;
-    }
-    if(!res.ok){
-      const t = await res.text().catch(()=> "");
-      list.innerHTML = `<div class="empty"><p style="font-size:13px">단어장을 불러오지 못했어요.<br>${esc(serverMessage(t) || "HTTP "+res.status)}</p></div>`;
-      return;
-    }
-    const data = await res.json();
-    renderWordbook(data.entries || []);
-    return true;
-  }catch(err){
-    console.error("[단어장 불러오기 실패]", err);
-    list.innerHTML = `<div class="empty"><p style="font-size:13px">${
-      isTimeout(err) ? "단어장 응답이 너무 오래 걸려 중단했어요.<br>새로 고침을 눌러 보세요."
-                     : "단어장 서버에 연결하지 못했어요."
-    }</p></div>`;
-  }
-}
-
-function renderWordbook(entries){
-  const list = $("#wbList");
-  const badge = $("#wbCount");
-  badge.textContent = entries.length;
-  badge.classList.toggle("hidden", entries.length === 0);
-
   if(!entries.length){
     list.innerHTML = `<div class="empty">
       <div class="mk">§</div>
@@ -1291,7 +1202,7 @@ function renderWordbook(entries){
     // 종류마다 왼쪽 띠 색이 다르다: 단어=붉은, 구절=초록, 사전=파란
     el.className = "wbitem" + (e.kind === "passage" || e.kind === "dict" ? " " + e.kind : "");
     const when = e.at ? new Date(e.at).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}) : "";
-    const term = e.kind === "passage" && e.term.length > 120 ? e.term.slice(0,120)+"…" : e.term;
+    const term = e.kind === "passage" && (e.term||"").length > 120 ? e.term.slice(0,120)+"…" : (e.term||"");
     el.innerHTML =
       `<div class="top">
          <span class="term">${esc(term)}</span>
@@ -1299,7 +1210,7 @@ function renderWordbook(entries){
        </div>`+
       (e.note ? `<div class="note">${esc(e.note)}</div>` : "")+
       `<div class="foot">
-         <span>${esc(e.by || "익명")}</span><span>${when}</span>
+         <span>${when}</span>
          <span class="spacer"></span>
          <button class="del" data-id="${esc(e.id)}">지우기</button>
        </div>`;
@@ -1307,69 +1218,77 @@ function renderWordbook(entries){
   }
   list.appendChild(frag);
 
-  list.querySelectorAll(".pg").forEach(n=>{
-    n.onclick = ()=>{ showPage(+n.dataset.page); };
-  });
-  list.querySelectorAll(".del").forEach(n=>{
-    n.onclick = ()=>removeEntry(n.dataset.id, n);
-  });
+  list.querySelectorAll(".pg").forEach(n=>{ n.onclick = ()=>showPage(+n.dataset.page); });
+  list.querySelectorAll(".del").forEach(n=>{ n.onclick = ()=>wbRemove(n.dataset.id); });
 }
 
-/* ---- 저장 / 삭제 ---- */
-$("#saveBtn").onclick = async ()=>{
+/* ---- 담기 ---- */
+$("#saveBtn").onclick = ()=>{
   const item = state.lastExplain;
   if(!item) return;
-  if(!club.ok){
-    switchTab("book");
-    return;
-  }
   const btn = $("#saveBtn");
-  btn.disabled = true;
+  const err = wbAdd(item);
+  if(err){ alertInline(err); return; }
   const before = btn.textContent;
-  btn.textContent = "넣는 중…";
-  try{
-    const res = await fetchWithTimeout(WB.endpoint,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
-      // by 를 빠뜨리면 서버가 기본값 "익명"을 쓴다 — 이름을 받아둔 게 무색해진다
-      body:JSON.stringify({ book:state.bookId, by:club.name, ...item })
-    });
-    if(!res.ok){
-      const t = await res.text().catch(()=> "");
-      btn.textContent = "실패";
-      alertInline(serverMessage(t) || `저장 실패 (HTTP ${res.status})`);
-      setTimeout(()=>{ btn.textContent = before; btn.disabled=false; }, 1800);
-      return;
-    }
-    btn.textContent = "넣었어요 ✓";
-    await loadWordbook();
-    setTimeout(()=>{ btn.textContent = before; btn.disabled=false; }, 1600);
-  }catch(err){
-    console.error("[단어장 저장 실패]", err);
-    btn.textContent = before; btn.disabled = false;
-    alertInline("단어장 서버에 연결하지 못했어요.");
-  }
+  btn.disabled = true;
+  btn.textContent = "넣었어요 ✓";
+  setTimeout(()=>{ btn.textContent = before; btn.disabled = false; }, 1600);
 };
 
-async function removeEntry(id, btnEl){
-  if(!club.ok || !id) return;
-  btnEl.disabled = true;
-  btnEl.textContent = "지우는 중…";
+/* ---- 내보내기 · 가져오기 ----
+   localStorage 는 브라우저 데이터를 지우면 사라진다. 공들여 채운 단어장을
+   그렇게 잃지 않도록 파일로 빼두고 되돌릴 수 있게 한다. */
+$("#wbExport").onclick = ()=>{
+  const entries = wbLoad(state.bookId);
+  if(!entries.length) return;
+  const payload = {
+    app:"bongdari-wordbook", version:1,
+    book:state.fileName, bookId:state.bookId,
+    exportedAt:new Date().toISOString(), entries,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `단어장-${(state.fileName||"book").replace(/\.pdf$/i,"")}.json`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+};
+
+$("#wbImportBtn").onclick = ()=>$("#wbImport").click();
+$("#wbImport").onchange = async e=>{
+  const file = e.target.files[0];
+  e.target.value = "";                       // 같은 파일을 다시 고를 수 있게
+  if(!file) return;
+  if(!state.bookId){ alertInline("먼저 책을 열어 주세요."); return; }
   try{
-    const res = await fetchWithTimeout(WB.endpoint,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
-      body:JSON.stringify({ book:state.bookId, action:"delete", id })
-    });
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    await loadWordbook();
+    const data = JSON.parse(await file.text());
+    const incoming = Array.isArray(data) ? data : (data.entries || []);
+    if(!incoming.length){ alertInline("가져올 항목이 없어요."); return; }
+
+    // 같은 항목을 두 번 넣지 않는다. id 가 겹치면 건너뛴다.
+    const entries = wbLoad(state.bookId);
+    const seen = new Set(entries.map(x=>x.id));
+    let added = 0;
+    for(const item of incoming){
+      if(!item || !item.term) continue;
+      const id = item.id && !seen.has(item.id)
+        ? item.id
+        : Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+      if(seen.has(id)) continue;
+      seen.add(id);
+      entries.push({ ...item, id, at: item.at || Date.now() });
+      added++;
+    }
+    entries.sort((a,b)=>(b.at||0)-(a.at||0));
+    if(!wbWrite(state.bookId, entries)){ alertInline("저장 공간이 부족해 가져오지 못했어요."); return; }
+    renderWordbook(entries);
+    alertInline(`${added}개를 가져왔어요.`);
   }catch(err){
-    console.error("[단어장 삭제 실패]", err);
-    btnEl.disabled = false;
-    btnEl.textContent = "지우기";
-    alertInline("지우지 못했어요.");
+    console.error("[단어장 가져오기 실패]", err);
+    alertInline("이 파일을 읽지 못했어요. 내보낸 JSON 파일인지 확인해 주세요.");
   }
-}
+};
 
 /* ============================================================
    사전 탭 — 문맥 없이 단어·표현 하나만 놓고 뜻 찾기
@@ -1436,7 +1355,7 @@ $("#dictLookup").onclick = async ()=>{
   }
 };
 
-$("#dictSave").onclick = async ()=>{
+$("#dictSave").onclick = ()=>{
   const term = $("#dictTerm").value.trim();
   const en = $("#dictEn").value.trim();
   const ko = $("#dictKo").value.trim();
@@ -1444,48 +1363,17 @@ $("#dictSave").onclick = async ()=>{
   if(!term){ dictStatus("단어나 표현을 넣어 주세요.", true); $("#dictTerm").focus(); return; }
   if(!en && !ko){ dictStatus("뜻을 하나라도 채워 주세요. 직접 적어도 됩니다.", true); return; }
 
-  // 단어장은 책 단위로 모인다. 책이 없으면 어디에 담을지 정할 수 없다.
-  if(!state.bookId){
-    dictStatus("먼저 책을 열어 주세요. 단어장은 책마다 따로 모입니다.", true);
-    return;
-  }
-  await probeMode();
-  if(!club.ok){
-    dictStatus("단어장 탭에서 이름을 먼저 알려주세요.", true);
-    switchTab("book");
-    return;
-  }
+  // 브라우저에 바로 쓰므로 기다릴 것이 없다 — 서버 왕복이 사라졌다.
+  const failure = wbAdd({
+    kind:"dict", term,
+    note:[en, ko].filter(Boolean).join("\n"),
+    page: state.viewPage || null,   // 책을 보는 중이었다면 그 쪽을 함께 남긴다
+  });
+  if(failure){ dictStatus(esc(failure), true); return; }
 
-  const btn = $("#dictSave");
-  btn.disabled = true;
-  const before = btn.textContent;
-  btn.textContent = "담는 중…";
-  try{
-    const res = await fetchWithTimeout(WB.endpoint,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
-      body:JSON.stringify({
-        book:state.bookId, by:club.name,
-        kind:"dict", term,
-        note:[en, ko].filter(Boolean).join("\n"),
-      })
-    });
-    if(!res.ok){
-      const t = await res.text().catch(()=> "");
-      dictStatus(esc(serverMessage(t) || `담지 못했어요 (HTTP ${res.status})`), true);
-      return;
-    }
-    dictStatus("단어장에 담았어요.");
-    $("#dictTerm").value=""; $("#dictEn").value=""; $("#dictKo").value="";
-    $("#dictTerm").focus();
-    loadWordbook();
-  }catch(err){
-    console.error("[사전 담기 실패]", err);
-    dictStatus("단어장 서버에 연결하지 못했어요.", true);
-  }finally{
-    btn.textContent = before;
-    btn.disabled = false;
-  }
+  dictStatus("단어장에 담았어요.");
+  $("#dictTerm").value=""; $("#dictEn").value=""; $("#dictKo").value="";
+  $("#dictTerm").focus();
 };
 
 // 해설 패널 아래에 잠깐 띄우는 알림. alert() 는 브라우저를 막으므로 쓰지 않는다.
