@@ -22,8 +22,11 @@ const MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
 const MAX_CONTEXT = 1200;  // 문맥 길이 상한 (글자)
 const MAX_PASSAGE = 2000;  // 드래그로 집은 구절 길이 상한
-const MAX_TOKENS = 500;    // 안 주면 기본값이 낮아 답이 잘린다
-const MAX_TOKENS_PASSAGE = 900; // 구절 모드는 세 항목을 쓰므로 더 필요하다
+const MAX_TOKENS = 700;    // 안 주면 기본값이 낮아 답이 잘린다
+// 구절 모드는 세 항목을 쓰는데다, 이 모델이 답 전에 사고 과정을 쓰는
+// 경우가 있어 그 몫까지 넉넉히 줘야 한다. 900 으로는 사고만 하다
+// 끝나서 답이 통째로 비었다. 상한이라 안 쓰면 청구되지 않는다.
+const MAX_TOKENS_PASSAGE = 1800;
 
 // 원문이 영어라 모델이 영어로 답해버리기 쉽다. system 으로 못박는다.
 const SYSTEM_WORD =
@@ -69,7 +72,10 @@ function cleanAnswer(raw, strict = true) {
   let t = String(raw || "");
 
   // 일부 모델은 사고 과정을 <think> 블록으로 내보낸다
-  t = t.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<\/?think>/gi, "");
+  t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  // 길이 제한에 걸려 </think> 없이 잘린 경우 — 여는 태그부터 끝까지가 사고 과정이다
+  t = t.replace(/<think>[\s\S]*$/i, "");
+  t = t.replace(/<\/?think>/gi, "");
   // ``` 로 감싸는 경우가 있어 벗겨낸다
   t = t.replace(/```[a-zA-Z]*\n?/g, "");
   // 프롬프트 머리말을 복창하는 경우
@@ -184,9 +190,25 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       "";
     const text = cleanAnswer(rawText, !isPassage);
 
+    // 정리 후 아무것도 안 남는 경우. 원인이 여러 가지인데 지금까지
+    // 전부 "설명이 비어 있었어요" 한 문장으로 뭉개져서 원인 추적이 늦어졌다.
+    // 이제는 구분해서 알려주고, 모르면 원본을 감추지 않고 그대로 보여준다.
     if (!text) {
-      console.warn("정리 후 남은 답이 없음. 원본:", String(rawText).slice(0, 500));
-      return res.status(200).json({ text: "설명이 비어 있었어요. 다시 시도해 주세요." });
+      const raw = String(rawText).trim();
+      console.warn("정리 후 남은 답이 없음. 원본:", raw.slice(0, 800));
+
+      if (!raw) {
+        return res.status(200).json({ text: "모델이 빈 응답을 돌려줬어요. 다시 시도해 주세요." });
+      }
+      if (/<think>/i.test(raw)) {
+        return res.status(200).json({
+          text:
+            "모델이 생각만 하다 길이 제한에 걸려 답을 쓰지 못했어요.\n" +
+            "구절을 좀 더 짧게 잡아서 다시 눌러 주세요.",
+        });
+      }
+      // 원인 미상 — 서버가 받은 것을 그대로 보여준다. 감추면 진단이 늦어진다.
+      return res.status(200).json({ text: raw.slice(0, 600) });
     }
 
     return res.status(200).json({ text });
