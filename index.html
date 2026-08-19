@@ -17,6 +17,7 @@
     --bind-ink:#EFF3EC;
     --mark:#F2D64B;
     --ref:#7C3B33;
+    --under:#C4241C;   /* PDF 페이지에서 검색어에 긋는 밑줄 */
     --serif:"Iowan Old Style","Palatino Linotype",Palatino,Charter,Georgia,"Apple SD Gothic Neo","Malgun Gothic",serif;
     --sans:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",Segoe UI,sans-serif;
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -186,15 +187,16 @@
   .pageinner{position:relative;display:block;margin:0 auto}
   .pageinner canvas{display:block;width:100%;height:auto}
 
-  /* 검색어 위치 표시. 텍스트 레이어 밑에 깔아 클릭을 방해하지 않는다. */
+  /* 검색어 위치 표시. 텍스트 레이어 밑에 깔아 클릭을 방해하지 않는다.
+     배경을 덮으면 인쇄된 글자가 가려져 어색하다 — 밑줄만 긋는다. */
   .hllayer{position:absolute;inset:0;pointer-events:none;z-index:1}
   .hl{
-    position:absolute;background:rgba(242,214,75,.5);border-radius:2px;
-    mix-blend-mode:multiply;box-shadow:0 0 0 1px rgba(170,132,18,.35);
+    position:absolute;
+    border-bottom:2px solid var(--under);opacity:.6;
   }
+  /* 지금 보고 있는 항목만 진하고 굵게 */
   .hl.current{
-    background:rgba(242,214,75,.92);
-    box-shadow:0 0 0 2px var(--ref),0 0 12px rgba(124,59,51,.35);
+    border-bottom-width:3px;opacity:1;
   }
 
   /* 투명한 실제 텍스트. 이게 있어야 드래그 선택·복사가 된다. */
