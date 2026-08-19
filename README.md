@@ -12,9 +12,10 @@ PDF는 서버로 전송되지 않습니다. 브라우저 안에서만 읽고 검
 
 ```
 .
-├── index.html              프론트엔드 전부 (검색 · 미리보기 · 뜻 풀이 UI)
+├── index.html              프론트엔드 전부 (뷰어 · 검색 · 해설 · 단어장 UI)
 ├── api/
-│   ├── explain.js          뜻 풀이 서버 함수 — 현재 Cloudflare Workers AI 사용
+│   ├── explain.js          해설 서버 함수 — 현재 Cloudflare Workers AI 사용
+│   ├── wordbook.js         공유 단어장 (Upstash Redis)
 │   ├── _explain-gemini.js      Google Gemini 버전 (참고용, 배포되지 않음)
 │   └── _explain-anthropic.js   Claude API 버전 (참고용, 배포되지 않음)
 ├── package.json
@@ -62,6 +63,17 @@ git push -u origin main
 3. Settings → Environment Variables 에 `CF_ACCOUNT_ID` 와 `CF_API_TOKEN` 추가
 4. Deploy
 
+### 4. 공유 단어장 붙이기
+
+1. Vercel 프로젝트 → **Storage** → Marketplace 에서 **Upstash Redis** 연결
+   (환경변수는 자동 주입됩니다. 직접 넣을 거면 `KV_REST_API_URL` / `KV_REST_API_TOKEN`)
+2. Environment Variables 에 **`CLUB_PASSWORD`** 추가 — 동아리에서 공유할 암호
+3. 재배포
+
+단어장은 **책 단위**로 모입니다. 책 식별자는 파일명이 아니라 PDF 내용의
+SHA-256 앞 16자라서, 각자 파일 이름을 바꿔 저장했어도 같은 책이면 같은
+단어장에 모입니다. 반대로 다른 스캔본·다른 판본은 다른 단어장이 됩니다.
+
 ### 로컬에서 먼저 확인하려면
 
 ```bash
@@ -88,5 +100,8 @@ vercel dev
 - 원문이 영어라도 **답변은 한국어**로 오도록 프롬프트에 못박아 두었습니다.
   모델을 바꿀 경우 이 부분이 잘 지켜지는지 꼭 확인하세요.
 - 배포 주소를 아는 사람은 누구나 `/api/explain`을 부를 수 있습니다.
-  모델·토큰 수·문맥 길이는 서버에서 고정해 뒀지만, 클럽 밖에 주소가 퍼지는 게
-  걱정되면 간단한 공유 암호를 헤더로 검사하는 정도를 추가하면 됩니다.
+  모델·토큰 수·문맥 길이는 서버에서 고정해 뒀습니다. **단어장(`/api/wordbook`)은
+  `CLUB_PASSWORD`로 읽기·쓰기 모두 막혀 있습니다.** 단어장 읽기를 외부에 열고
+  싶으면 `api/wordbook.js`의 암호 검사를 GET 분기에서 빼면 됩니다.
+- 단어장 암호는 브라우저 `localStorage`에 저장됩니다. 공용 PC에서는
+  단어장 탭의 **이름 바꾸기**로 지울 수 있습니다.

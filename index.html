@@ -220,6 +220,47 @@
     text-align:center;line-height:1.6;
   }
 
+  /* ---------- 좌측 탭: 검색 / 단어장 ---------- */
+  .tabs{display:flex;border-bottom:1px solid var(--line);background:var(--card-2)}
+  .tab{
+    flex:1;padding:12px 10px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);
+    display:flex;align-items:center;justify-content:center;gap:6px;
+  }
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--bind);border-bottom-color:var(--bind);background:var(--card)}
+  .badge{font-family:var(--mono);font-size:10px;background:var(--ref);color:#fff;border-radius:99px;padding:1px 6px}
+  .pane{flex:1;min-height:0;display:flex;flex-direction:column}
+
+  /* ---------- 공유 단어장 ---------- */
+  .wbgate{padding:26px 22px;color:var(--muted);font-size:13px;line-height:1.6}
+  .wbgate input{
+    display:block;width:100%;margin:8px 0;font:inherit;font-size:14px;
+    background:var(--card);border:1.5px solid var(--line);border-radius:8px;
+    padding:10px 12px;color:var(--ink);outline:none;
+  }
+  .wbgate input:focus{border-color:var(--bind)}
+  .wbgate .err{color:var(--ref);font-size:12px;margin-top:8px}
+  .wbhead{
+    display:flex;align-items:center;gap:8px;padding:10px 16px;
+    border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);
+  }
+  .wbhead .spacer{flex:1}
+  .wblist{flex:1;overflow:auto;padding:6px 12px 20px}
+  .wbitem{
+    background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ref);
+    border-radius:8px;padding:11px 13px;margin:8px 6px;
+  }
+  .wbitem.passage{border-left-color:var(--bind)}
+  .wbitem .top{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+  .wbitem .term{font-family:var(--serif);font-size:16px;font-weight:600;flex:1;word-break:break-word}
+  .wbitem .pg{font-family:var(--mono);font-size:11px;color:var(--ref);cursor:pointer;text-decoration:underline;white-space:nowrap}
+  .wbitem .note{font-size:13px;line-height:1.6;color:#3a332a;white-space:pre-wrap}
+  .wbitem .foot{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .wbitem .foot .spacer{flex:1}
+  .wbitem .del{background:none;border:none;color:var(--muted);cursor:pointer;font:inherit;font-size:10px;text-decoration:underline;padding:0}
+  .wbitem .del:hover{color:var(--ref)}
+
   .spinner{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--bind);border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -249,8 +290,14 @@
   </header>
 
   <main>
-    <!-- LEFT: search + results -->
+    <!-- LEFT: search + results / wordbook -->
     <section class="panel left">
+      <div class="tabs">
+        <button class="tab active" id="tabSearch">검색</button>
+        <button class="tab" id="tabBook">단어장 <span class="badge hidden" id="wbCount">0</span></button>
+      </div>
+
+      <div class="pane" id="paneSearch">
       <div class="search">
         <div class="searchrow">
           <input id="q" type="search" placeholder="찾을 단어를 입력하세요" autocomplete="off" spellcheck="false" disabled />
@@ -277,6 +324,24 @@
             <div class="lbl" id="progLbl">읽는 중…</div>
           </div>
         </div>
+      </div>
+      </div><!-- /paneSearch -->
+
+      <div class="pane hidden" id="paneBook">
+        <div class="wbgate" id="wbGate">
+          <p>단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다.</p>
+          <input id="wbName" placeholder="이름 (예: 지수)" autocomplete="nickname" />
+          <input id="wbPass" type="password" placeholder="동아리 암호" autocomplete="current-password" />
+          <button class="btn" id="wbEnter" style="margin-top:6px">들어가기</button>
+          <div class="err hidden" id="wbErr"></div>
+        </div>
+        <div class="wbhead hidden" id="wbHead">
+          <span id="wbWho"></span>
+          <span class="spacer"></span>
+          <button class="btn ghost sm" id="wbRefresh">새로 고침</button>
+          <button class="btn ghost sm" id="wbLogout">이름 바꾸기</button>
+        </div>
+        <div class="wblist hidden" id="wbList"></div>
       </div>
     </section>
 
@@ -312,6 +377,7 @@
               <div class="head">
                 <span class="t" id="explainTitle">해설</span>
                 <span class="spacer" style="flex:1"></span>
+                <button class="btn ghost sm hidden" id="saveBtn">단어장에 넣기</button>
                 <button class="btn" id="explainBtn" disabled>이 문맥에서 무슨 뜻일까?</button>
               </div>
               <div class="body dim" id="explainBody">읽다가 막힌 문장을 드래그하면 그 자리에서 구절 해설을 받을 수 있어요. 검색 결과를 누르면 그 단어의 뜻을 풀어드려요.</div>
@@ -351,6 +417,25 @@ const state = {
   caseSens:false,
   selectedText:"",     // 드래그로 집은 구절
   rendering:false,     // 렌더 중복 방지
+  bookId:"",           // PDF 내용의 SHA-256 앞 16자 — 단어장을 묶는 키
+  lastExplain:null,    // 방금 받은 해설 {kind, term, page, note} — 단어장 저장용
+};
+
+/* 동아리 신원: 이름과 공유 암호. 서버가 헤더로 검사하고, 이 브라우저에만 기억한다. */
+const club = {
+  name: localStorage.getItem("bongdari.name") || "",
+  pass: localStorage.getItem("bongdari.pass") || "",
+  get ok(){ return !!(this.name && this.pass); },
+  save(name, pass){
+    this.name = name; this.pass = pass;
+    localStorage.setItem("bongdari.name", name);
+    localStorage.setItem("bongdari.pass", pass);
+  },
+  clear(){
+    this.name = ""; this.pass = "";
+    localStorage.removeItem("bongdari.name");
+    localStorage.removeItem("bongdari.pass");
+  },
 };
 
 const CONTEXT = 60;    // chars of context on each side
@@ -391,6 +476,12 @@ async function loadPdf(file){
 
   try{
     const buf = await file.arrayBuffer();
+
+    // 책 식별자는 파일명이 아니라 내용으로 만든다 — 각자 파일 이름을
+    // 바꿔 저장했어도 같은 책이면 같은 단어장에 모이게 하려고.
+    state.bookId = await hashBook(buf);
+
+    // getDocument 가 버퍼의 소유권을 가져가므로 해시를 먼저 계산해야 한다
     const pdf = await pdfjsLib.getDocument({data:buf}).promise;
     state.pdf = pdf;
     const total = pdf.numPages;
@@ -419,9 +510,29 @@ async function loadPdf(file){
   }
 }
 
+// crypto.subtle 은 https(또는 localhost)에서만 있다. 없으면 파일 크기+이름으로
+// 대체 키를 만든다 — 같은 파일을 쓰는 한 동아리 안에서는 여전히 일치한다.
+async function hashBook(buf){
+  try{
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return [...new Uint8Array(digest)].slice(0,8)
+      .map(b=>b.toString(16).padStart(2,"0")).join("");
+  }catch(err){
+    console.warn("SHA-256 사용 불가, 대체 키를 씁니다", err);
+    let h = 2166136261 >>> 0;
+    const s = `${buf.byteLength}`;
+    for(let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return ("00000000"+h.toString(16)).slice(-8) + ("00000000"+(buf.byteLength>>>0).toString(16)).slice(-8);
+  }
+}
+
 function resetForNewBook(name){
   state.pages=[]; state.matches=[]; state.active=-1; state.pdf=null;
   state.fileName=name; state.viewPage=0; state.needle=""; state.selectedText="";
+  state.bookId=""; state.lastExplain=null;
+  $("#saveBtn").classList.add("hidden");
+  $("#wbList").innerHTML="";
+  $("#wbCount").classList.add("hidden");
   $("#fileName").textContent = name;
   $("#q").value="";
   $("#hitCount").textContent="0";
@@ -442,6 +553,10 @@ function onBookReady(total){
   $("#viewer").classList.remove("hidden");
   $("#pgTotal").textContent = total.toLocaleString();
   showPage(1);
+
+  // 이 책의 단어장을 미리 받아 둔다 (암호가 이미 있으면)
+  syncWordbookGate();
+  if(club.ok) loadWordbook();
 }
 
 function showEmptyMessage(msg){
@@ -841,12 +956,15 @@ function diagnose(err, status, bodyText){
     + (local ? " 지금 이 페이지는 file:// 로 열려 있습니다. /api/explain 은 배포된 주소(또는 vercel dev)에서만 동작합니다." : " 네트워크 상태를 확인해 주세요.");
 }
 
-async function callExplain(payload, loadingLabel){
+async function callExplain(payload, loadingLabel, saveMeta){
   const body = $("#explainBody");
   const btn = $("#explainBtn");
   body.className = "body";
   body.innerHTML = `<span style="display:inline-flex;gap:8px;align-items:center;color:var(--muted)"><span class="spinner"></span> ${loadingLabel}</span>`;
   btn.disabled = true;
+  // 이전 해설을 단어장에 넣는 사고를 막는다
+  state.lastExplain = null;
+  $("#saveBtn").classList.add("hidden");
 
   let status = 0, bodyText = "";
   try{
@@ -861,7 +979,13 @@ async function callExplain(payload, loadingLabel){
       throw new Error("HTTP " + status);
     }
     const data = await res.json();
-    body.textContent = (data.text || "").trim() || "설명이 비어 있었어요. 다시 시도해 주세요.";
+    const text = (data.text || "").trim();
+    body.textContent = text || "설명이 비어 있었어요. 다시 시도해 주세요.";
+    if(text && saveMeta){
+      state.lastExplain = { ...saveMeta, note:text };
+      // 암호를 아직 안 넣었으면 버튼을 숨긴다 — 눌러도 게이트로 갈 뿐이니
+      $("#saveBtn").classList.toggle("hidden", !club.ok);
+    }
   }catch(err){
     console.error("[해설 실패]", {status, bodyText, err});
     body.className = "body dim";
@@ -875,7 +999,8 @@ async function callExplain(payload, loadingLabel){
 function explainWord(m){
   const context = `${m.before}${m.match}${m.after}`.replace(/…/g,"");
   $("#explainTitle").textContent = "뜻 풀이";
-  callExplain({ word:m.match, context }, "뜻을 풀고 있어요…");
+  callExplain({ word:m.match, context }, "뜻을 풀고 있어요…",
+    { kind:"word", term:m.match, page:m.page });
 }
 
 function explainPassage(passage){
@@ -894,8 +1019,211 @@ function explainPassage(passage){
     `<div class="ref">p. ${state.viewPage} 선택한 구절</div>`+
     `<div class="big">${esc(passage.length>600 ? passage.slice(0,600)+"…" : passage)}</div>`;
 
-  callExplain({ mode:"passage", passage, context }, "구절을 해설하고 있어요…");
+  callExplain({ mode:"passage", passage, context }, "구절을 해설하고 있어요…",
+    { kind:"passage", term:passage, page:state.viewPage });
   $("#preview").scrollTo({top:0, behavior:"smooth"});
+}
+
+/* ============================================================
+   공유 단어장
+   ------------------------------------------------------------
+   검색 결과를 보고 나면 아무것도 남지 않던 문제를 메우는 부분.
+   책 단위로 모이고(bookId = PDF 내용 해시), 누가 넣었는지 남는다.
+   ============================================================ */
+const WB = { endpoint:"/api/wordbook" };
+
+/* ---- 탭 ---- */
+$("#tabSearch").onclick = ()=>switchTab("search");
+$("#tabBook").onclick   = ()=>switchTab("book");
+
+function switchTab(which){
+  const isBook = which === "book";
+  $("#tabSearch").classList.toggle("active", !isBook);
+  $("#tabBook").classList.toggle("active", isBook);
+  $("#paneSearch").classList.toggle("hidden", isBook);
+  $("#paneBook").classList.toggle("hidden", !isBook);
+  if(isBook){
+    syncWordbookGate();
+    if(club.ok && state.bookId) loadWordbook();
+  }
+}
+
+/* ---- 신원 게이트 ---- */
+function syncWordbookGate(){
+  const on = club.ok;
+  $("#wbGate").classList.toggle("hidden", on);
+  $("#wbHead").classList.toggle("hidden", !on);
+  $("#wbList").classList.toggle("hidden", !on);
+  $("#saveBtn").classList.toggle("hidden", !(on && state.lastExplain));
+  if(on) $("#wbWho").textContent = `${club.name} 님으로 참여 중`;
+  else { $("#wbName").value = club.name || ""; }
+}
+
+$("#wbEnter").onclick = async ()=>{
+  const name = $("#wbName").value.trim();
+  const pass = $("#wbPass").value;
+  const err = $("#wbErr");
+  if(!name || !pass){
+    err.textContent = "이름과 암호를 모두 넣어 주세요.";
+    err.classList.remove("hidden");
+    return;
+  }
+  // 암호가 맞는지 실제로 한 번 불러 확인한다 — 틀린 걸 저장해두면
+  // 나중에 저장 시점에야 실패해서 원인을 헷갈리게 된다.
+  club.save(name, pass);
+  err.classList.add("hidden");
+  const ok = await loadWordbook({quiet:false});
+  if(ok === false){
+    club.clear();
+    syncWordbookGate();
+    err.textContent = "암호가 맞지 않아요.";
+    err.classList.remove("hidden");
+    return;
+  }
+  $("#wbPass").value = "";
+  syncWordbookGate();
+};
+$("#wbPass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#wbEnter").click(); });
+
+$("#wbLogout").onclick = ()=>{ club.clear(); syncWordbookGate(); };
+$("#wbRefresh").onclick = ()=>loadWordbook();
+
+/* ---- 목록 ---- */
+async function loadWordbook(opts={}){
+  if(!club.ok) return;
+  const list = $("#wbList");
+  if(!state.bookId){
+    list.innerHTML = `<div class="empty"><p style="font-size:13px">먼저 책을 열어 주세요.<br>단어장은 책마다 따로 모입니다.</p></div>`;
+    return;
+  }
+  list.innerHTML = `<div class="empty"><p style="font-size:13px"><span class="spinner" style="display:inline-block;vertical-align:middle"></span> 단어장을 불러오는 중…</p></div>`;
+
+  try{
+    const res = await fetch(`${WB.endpoint}?book=${encodeURIComponent(state.bookId)}`,{
+      headers:{ "x-club-pass": club.pass }
+    });
+    if(res.status === 401) return false;
+    if(!res.ok){
+      const t = await res.text().catch(()=> "");
+      list.innerHTML = `<div class="empty"><p style="font-size:13px">단어장을 불러오지 못했어요.<br>${esc(serverMessage(t) || "HTTP "+res.status)}</p></div>`;
+      return;
+    }
+    const data = await res.json();
+    renderWordbook(data.entries || []);
+    return true;
+  }catch(err){
+    console.error("[단어장 불러오기 실패]", err);
+    list.innerHTML = `<div class="empty"><p style="font-size:13px">단어장 서버에 연결하지 못했어요.</p></div>`;
+  }
+}
+
+function renderWordbook(entries){
+  const list = $("#wbList");
+  const badge = $("#wbCount");
+  badge.textContent = entries.length;
+  badge.classList.toggle("hidden", entries.length === 0);
+
+  if(!entries.length){
+    list.innerHTML = `<div class="empty">
+      <div class="mk">§</div>
+      <p style="font-size:13px">아직 비어 있어요.<br>단어 뜻풀이나 구절 해설을 받은 뒤<br><b>단어장에 넣기</b>를 눌러 채워 보세요.</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for(const e of entries){
+    const el = document.createElement("div");
+    el.className = "wbitem" + (e.kind === "passage" ? " passage" : "");
+    const when = e.at ? new Date(e.at).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}) : "";
+    const term = e.kind === "passage" && e.term.length > 120 ? e.term.slice(0,120)+"…" : e.term;
+    el.innerHTML =
+      `<div class="top">
+         <span class="term">${esc(term)}</span>
+         ${e.page ? `<span class="pg" data-page="${e.page}">p.${e.page}</span>` : ""}
+       </div>`+
+      (e.note ? `<div class="note">${esc(e.note)}</div>` : "")+
+      `<div class="foot">
+         <span>${esc(e.by || "익명")}</span><span>${when}</span>
+         <span class="spacer"></span>
+         <button class="del" data-id="${esc(e.id)}">지우기</button>
+       </div>`;
+    frag.appendChild(el);
+  }
+  list.appendChild(frag);
+
+  list.querySelectorAll(".pg").forEach(n=>{
+    n.onclick = ()=>{ showPage(+n.dataset.page); };
+  });
+  list.querySelectorAll(".del").forEach(n=>{
+    n.onclick = ()=>removeEntry(n.dataset.id, n);
+  });
+}
+
+/* ---- 저장 / 삭제 ---- */
+$("#saveBtn").onclick = async ()=>{
+  const item = state.lastExplain;
+  if(!item) return;
+  if(!club.ok){
+    switchTab("book");
+    return;
+  }
+  const btn = $("#saveBtn");
+  btn.disabled = true;
+  const before = btn.textContent;
+  btn.textContent = "넣는 중…";
+  try{
+    const res = await fetch(WB.endpoint,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
+      body:JSON.stringify({ book:state.bookId, ...item })
+    });
+    if(!res.ok){
+      const t = await res.text().catch(()=> "");
+      btn.textContent = "실패";
+      alertInline(serverMessage(t) || `저장 실패 (HTTP ${res.status})`);
+      setTimeout(()=>{ btn.textContent = before; btn.disabled=false; }, 1800);
+      return;
+    }
+    btn.textContent = "넣었어요 ✓";
+    await loadWordbook();
+    setTimeout(()=>{ btn.textContent = before; btn.disabled=false; }, 1600);
+  }catch(err){
+    console.error("[단어장 저장 실패]", err);
+    btn.textContent = before; btn.disabled = false;
+    alertInline("단어장 서버에 연결하지 못했어요.");
+  }
+};
+
+async function removeEntry(id, btnEl){
+  if(!club.ok || !id) return;
+  btnEl.disabled = true;
+  btnEl.textContent = "지우는 중…";
+  try{
+    const res = await fetch(WB.endpoint,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
+      body:JSON.stringify({ book:state.bookId, action:"delete", id })
+    });
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    await loadWordbook();
+  }catch(err){
+    console.error("[단어장 삭제 실패]", err);
+    btnEl.disabled = false;
+    btnEl.textContent = "지우기";
+    alertInline("지우지 못했어요.");
+  }
+}
+
+// 해설 패널 아래에 잠깐 띄우는 알림. alert() 는 브라우저를 막으므로 쓰지 않는다.
+function alertInline(msg){
+  const body = $("#explainBody");
+  const tag = document.createElement("div");
+  tag.style.cssText = "margin-top:10px;font-size:12px;color:var(--ref)";
+  tag.textContent = "· " + msg;
+  body.appendChild(tag);
+  setTimeout(()=>tag.remove(), 4000);
 }
 </script>
 </body>
