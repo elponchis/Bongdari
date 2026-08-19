@@ -27,6 +27,9 @@ const MAX_TOKENS = 700;    // 안 주면 기본값이 낮아 답이 잘린다
 // 경우가 있어 그 몫까지 넉넉히 줘야 한다. 900 으로는 사고만 하다
 // 끝나서 답이 통째로 비었다. 상한이라 안 쓰면 청구되지 않는다.
 const MAX_TOKENS_PASSAGE = 1800;
+// 사전 모드는 두 줄만 쓰지만, 이 모델이 답 전에 사고 과정을 쓰므로
+// 그 몫을 함께 준다. 900 정도면 사고 + 두 줄이 들어간다.
+const MAX_TOKENS_DICT = 900;
 
 // 원문이 영어라 모델이 영어로 답해버리기 쉽다. system 으로 못박는다.
 const SYSTEM_WORD =
@@ -64,6 +67,24 @@ const SYSTEM_PASSAGE =
 - 반드시 한국어로 답한다.
 - 원문을 길게 그대로 인용하지 않는다.
 - 위 세 항목 외에 아무 말도 덧붙이지 않는다.`;
+
+// 사전 모드. 문맥 없이 단어·표현 하나만 놓고 영영 정의와 한국어 의미를
+// 함께 받는다. 클라이언트가 두 칸으로 나눠 담아야 하므로 형식을 못박는다.
+const SYSTEM_DICT =
+`당신은 영어를 읽는 한국인을 위한 사전입니다. 주어진 단어 또는 표현에 대해
+아래 두 줄만 출력합니다.
+
+EN: 영영사전식 정의. 쉬운 영어로 한 문장.
+KO: 한국어 의미. "역어 (짧은 설명)" 형태.
+
+예시 —
+EN: a feeling of discomfort from holding conflicting beliefs
+KO: 인지 부조화 (상반된 신념을 동시에 지녀 느끼는 불편함)
+
+규칙:
+- 정확히 위 두 줄만 출력한다. EN: 과 KO: 라는 머리표를 반드시 붙인다.
+- 인사말·해설·목록·코드블록을 붙이지 않는다. 두 줄을 쓴 뒤 아무 말도 덧붙이지 않는다.
+- EN 줄은 영어로, KO 줄은 한국어로 쓴다.`;
 
 // 모델이 사고 과정이나 군더더기를 섞어 내보내도 화면에는 답만 나가게 한다.
 // strict=false 는 구절 모드용 — 답변에 "salience(현저성)" 같은 영어 용어
@@ -125,16 +146,23 @@ export default async function handler(req, res) {
 
   const { mode, word, passage, context } = req.body || {};
   const isPassage = mode === "passage";
+  const isDict = mode === "dict";
 
   // 단어 모드는 기존 형식({word, context})을 그대로 받는다 — 하위 호환.
+  // 사전 모드는 문맥이 없다 — 단어 하나만 놓고 뜻을 묻는 용도라서.
   const target = isPassage ? passage : word;
-  if (!target || !context) {
+  if (!target) {
     return res.status(400).json({
-      error: isPassage ? "passage와 context가 필요합니다." : "word와 context가 필요합니다.",
+      error: isPassage ? "passage가 필요합니다." : "word가 필요합니다.",
     });
   }
+  if (!isDict && !context) {
+    return res.status(400).json({ error: "context가 필요합니다." });
+  }
 
-  const userPrompt = isPassage
+  const userPrompt = isDict
+    ? `단어 또는 표현: "${String(word).slice(0, 120)}"`
+    : isPassage
     ? `구절:
 ${String(passage).slice(0, MAX_PASSAGE)}
 
@@ -144,6 +172,9 @@ ${String(context).slice(0, MAX_CONTEXT)}`
 
 지문:
 ${String(context).slice(0, MAX_CONTEXT)}`;
+
+  const systemPrompt = isDict ? SYSTEM_DICT : isPassage ? SYSTEM_PASSAGE : SYSTEM_WORD;
+  const maxTokens = isDict ? MAX_TOKENS_DICT : isPassage ? MAX_TOKENS_PASSAGE : MAX_TOKENS;
 
   const url =
     `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}` +
@@ -161,10 +192,10 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       // 지문 머리말을 복창하고 끝없이 덧붙인다.
       body: JSON.stringify({
         messages: [
-          { role: "system", content: isPassage ? SYSTEM_PASSAGE : SYSTEM_WORD },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        max_completion_tokens: isPassage ? MAX_TOKENS_PASSAGE : MAX_TOKENS,
+        max_completion_tokens: maxTokens,
         temperature: 0.3,
       }),
     });
@@ -188,7 +219,9 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       data?.result?.response ??
       data?.result?.choices?.[0]?.message?.content ??
       "";
-    const text = cleanAnswer(rawText, !isPassage);
+    // 한국어 전용 필터는 단어 모드에서만 쓴다. 구절 답변에는 영어 용어
+    // 줄이, 사전 답변에는 EN: 줄이 정상적으로 섞이므로 걸러내면 안 된다.
+    const text = cleanAnswer(rawText, !isPassage && !isDict);
 
     // 정리 후 아무것도 안 남는 경우. 원인이 여러 가지인데 지금까지
     // 전부 "설명이 비어 있었어요" 한 문장으로 뭉개져서 원인 추적이 늦어졌다.

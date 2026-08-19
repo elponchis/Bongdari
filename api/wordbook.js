@@ -125,7 +125,7 @@ async function postEntry(req, res) {
     return res.status(200).json({ ok: true, removed: Number(removed) || 0 });
   }
 
-  const kind = body.kind === "passage" ? "passage" : "word";
+  const kind = ["passage", "dict"].includes(body.kind) ? body.kind : "word";
   const term = clip(body.term, LIMITS.term);
   const note = clip(body.note, LIMITS.note);
   const by = clip(body.by, LIMITS.by) || "익명";

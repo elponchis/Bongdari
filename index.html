@@ -234,6 +234,29 @@
   .badge{font-family:var(--mono);font-size:10px;background:var(--ref);color:#fff;border-radius:99px;padding:1px 6px}
   .pane{flex:1;min-height:0;display:flex;flex-direction:column}
 
+  /* ---------- 사전 탭 ---------- */
+  .dictform{padding:18px 18px 26px;overflow:auto}
+  .dictform label{
+    display:block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);margin:16px 0 6px;
+  }
+  .dictform label:first-child{margin-top:0}
+  .dictform input,.dictform textarea{
+    width:100%;font-family:var(--sans);font-size:14px;color:var(--ink);
+    background:var(--card);border:1.5px solid var(--line);border-radius:8px;
+    padding:10px 12px;outline:none;transition:border-color .15s;resize:vertical;
+  }
+  .dictform input{font-family:var(--serif);font-size:18px}
+  .dictform input:focus,.dictform textarea:focus{border-color:var(--bind)}
+  .dictform input::placeholder,.dictform textarea::placeholder{color:#b6ab93;font-style:italic}
+  .dictform > .btn{width:100%;margin-top:12px}
+  .dictform .dstatus{
+    margin-top:10px;font-size:12px;line-height:1.6;color:var(--muted);
+    display:flex;gap:8px;align-items:flex-start;
+  }
+  .dictform .dstatus.bad{color:var(--ref)}
+  .dictform .dnote{font-size:12px;color:var(--muted);line-height:1.6;margin:12px 0 0}
+
   /* ---------- 공유 단어장 ---------- */
   .wbgate{padding:26px 22px;color:var(--muted);font-size:13px;line-height:1.6}
   .wbgate input{
@@ -254,6 +277,7 @@
     border-radius:8px;padding:11px 13px;margin:8px 6px;
   }
   .wbitem.passage{border-left-color:var(--bind)}
+  .wbitem.dict{border-left-color:#4E6B8A}
   .wbitem .top{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
   .wbitem .term{font-family:var(--serif);font-size:16px;font-weight:600;flex:1;word-break:break-word}
   .wbitem .pg{font-family:var(--mono);font-size:11px;color:var(--ref);cursor:pointer;text-decoration:underline;white-space:nowrap}
@@ -296,6 +320,7 @@
     <section class="panel left">
       <div class="tabs">
         <button class="tab active" id="tabSearch">검색</button>
+        <button class="tab" id="tabDict">사전</button>
         <button class="tab" id="tabBook">단어장 <span class="badge hidden" id="wbCount">0</span></button>
       </div>
 
@@ -329,6 +354,24 @@
       </div>
       </div><!-- /paneSearch -->
 
+      <div class="pane hidden" id="paneDict">
+        <div class="dictform">
+          <label for="dictTerm">단어 / 표현</label>
+          <input id="dictTerm" placeholder="예: cognitive dissonance" autocomplete="off" spellcheck="false" />
+          <button class="btn" id="dictLookup">사전 뜻 찾기 (영 + 한)</button>
+          <div class="dstatus hidden" id="dictStatus"></div>
+
+          <label for="dictEn">뜻 (영영사전식 설명)</label>
+          <textarea id="dictEn" rows="3" placeholder="예: a feeling of discomfort from conflicting beliefs"></textarea>
+
+          <label for="dictKo">뜻 (한글 의미)</label>
+          <textarea id="dictKo" rows="3" placeholder="예: 인지 부조화 (상반된 신념 때문에 느끼는 불편함)"></textarea>
+
+          <button class="btn" id="dictSave">단어장에 추가</button>
+          <p class="dnote">찾은 뜻은 <b>고쳐서</b> 담을 수 있어요. 직접 적어 넣어도 됩니다.</p>
+        </div>
+      </div><!-- /paneDict -->
+
       <div class="pane hidden" id="paneBook">
         <div class="wbgate" id="wbGate">
           <p id="wbGateMsg">단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다.</p>
@@ -341,7 +384,6 @@
           <span id="wbWho"></span>
           <span class="spacer"></span>
           <button class="btn ghost sm" id="wbRefresh">새로 고침</button>
-          <button class="btn ghost sm" id="wbLogout">이름 바꾸기</button>
         </div>
         <div class="wblist hidden" id="wbList"></div>
       </div>
@@ -1041,16 +1083,22 @@ function explainPassage(passage){
 const WB = { endpoint:"/api/wordbook" };
 
 /* ---- 탭 ---- */
+const TABS = { search:["#tabSearch","#paneSearch"], dict:["#tabDict","#paneDict"], book:["#tabBook","#paneBook"] };
 $("#tabSearch").onclick = ()=>switchTab("search");
+$("#tabDict").onclick   = ()=>switchTab("dict");
 $("#tabBook").onclick   = ()=>switchTab("book");
 
 function switchTab(which){
-  const isBook = which === "book";
-  $("#tabSearch").classList.toggle("active", !isBook);
-  $("#tabBook").classList.toggle("active", isBook);
-  $("#paneSearch").classList.toggle("hidden", isBook);
-  $("#paneBook").classList.toggle("hidden", !isBook);
-  if(isBook) initWordbook();
+  for(const [key,[tab,pane]] of Object.entries(TABS)){
+    const on = key === which;
+    $(tab).classList.toggle("active", on);
+    $(pane).classList.toggle("hidden", !on);
+  }
+  if(which === "book") initWordbook();
+  if(which === "dict"){
+    probeMode();               // 담기 버튼이 바로 동작하도록 미리 확인
+    $("#dictTerm").focus();
+  }
 }
 
 async function initWordbook(){
@@ -1127,7 +1175,6 @@ $("#wbEnter").onclick = async ()=>{
 };
 $("#wbPass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("#wbEnter").click(); });
 
-$("#wbLogout").onclick = ()=>{ club.clear(); syncWordbookGate(); };
 $("#wbRefresh").onclick = ()=>loadWordbook();
 
 /* ---- 목록 ---- */
@@ -1180,7 +1227,7 @@ function renderWordbook(entries){
   if(!entries.length){
     list.innerHTML = `<div class="empty">
       <div class="mk">§</div>
-      <p style="font-size:13px">아직 비어 있어요.<br>단어 뜻풀이나 구절 해설을 받은 뒤<br><b>단어장에 넣기</b>를 눌러 채워 보세요.</p>
+      <p style="font-size:13px">아직 비어 있어요.<br>뜻풀이·구절 해설을 받은 뒤 <b>단어장에 넣기</b>를 누르거나,<br><b>사전</b> 탭에서 직접 찾아 담아 보세요.</p>
     </div>`;
     return;
   }
@@ -1189,7 +1236,8 @@ function renderWordbook(entries){
   const frag = document.createDocumentFragment();
   for(const e of entries){
     const el = document.createElement("div");
-    el.className = "wbitem" + (e.kind === "passage" ? " passage" : "");
+    // 종류마다 왼쪽 띠 색이 다르다: 단어=붉은, 구절=초록, 사전=파란
+    el.className = "wbitem" + (e.kind === "passage" || e.kind === "dict" ? " " + e.kind : "");
     const when = e.at ? new Date(e.at).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}) : "";
     const term = e.kind === "passage" && e.term.length > 120 ? e.term.slice(0,120)+"…" : e.term;
     el.innerHTML =
@@ -1231,7 +1279,8 @@ $("#saveBtn").onclick = async ()=>{
     const res = await fetch(WB.endpoint,{
       method:"POST",
       headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
-      body:JSON.stringify({ book:state.bookId, ...item })
+      // by 를 빠뜨리면 서버가 기본값 "익명"을 쓴다 — 이름을 받아둔 게 무색해진다
+      body:JSON.stringify({ book:state.bookId, by:club.name, ...item })
     });
     if(!res.ok){
       const t = await res.text().catch(()=> "");
@@ -1269,6 +1318,123 @@ async function removeEntry(id, btnEl){
     alertInline("지우지 못했어요.");
   }
 }
+
+/* ============================================================
+   사전 탭 — 문맥 없이 단어·표현 하나만 놓고 뜻 찾기
+   ------------------------------------------------------------
+   읽다 만난 것뿐 아니라, 모임에서 나온 표현이나 미리 훑어둘 어휘도
+   담을 수 있어야 한다. 찾은 뜻은 고쳐서 담을 수 있게 두 칸을 편집
+   가능한 textarea 로 둔다 — 모델이 늘 맞지는 않으니까.
+   ============================================================ */
+
+// 서버가 "EN: ... / KO: ..." 두 줄로 주기로 약속돼 있다.
+// 형식이 어긋나면 감추지 말고 원문을 영영 칸에 넣어 사용자가 손보게 한다.
+function parseDict(text){
+  const en = (text.match(/^[ \t]*EN[ \t]*:[ \t]*(.+)$/im) || [])[1] || "";
+  const ko = (text.match(/^[ \t]*KO[ \t]*:[ \t]*(.+)$/im) || [])[1] || "";
+  if(!en && !ko) return { en:text.trim(), ko:"", loose:true };
+  return { en:en.trim(), ko:ko.trim(), loose:false };
+}
+
+function dictStatus(msg, bad){
+  const el = $("#dictStatus");
+  if(!msg){ el.classList.add("hidden"); el.innerHTML=""; return; }
+  el.classList.remove("hidden");
+  el.classList.toggle("bad", !!bad);
+  el.innerHTML = msg;
+}
+
+$("#dictTerm").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#dictLookup").click(); }});
+
+$("#dictLookup").onclick = async ()=>{
+  const term = $("#dictTerm").value.trim();
+  if(!term){ dictStatus("찾을 단어나 표현을 넣어 주세요.", true); $("#dictTerm").focus(); return; }
+
+  const btn = $("#dictLookup");
+  btn.disabled = true;
+  dictStatus(`<span class="spinner"></span> 사전을 찾고 있어요…`);
+
+  let status = 0, bodyText = "";
+  try{
+    const res = await fetch(AI.endpoint,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ mode:"dict", word:term })
+    });
+    status = res.status;
+    if(!res.ok){
+      bodyText = await res.text().catch(()=> "");
+      throw new Error("HTTP " + status);
+    }
+    const data = await res.json();
+    const text = (data.text || "").trim();
+    if(!text){ dictStatus("사전이 빈 답을 돌려줬어요. 다시 눌러 주세요.", true); return; }
+
+    const { en, ko, loose } = parseDict(text);
+    $("#dictEn").value = en;
+    if(ko) $("#dictKo").value = ko;
+    dictStatus(loose
+      ? "형식이 예상과 달라 받은 내용을 그대로 넣었어요. 손봐서 담아 주세요."
+      : "찾았어요. 고칠 부분이 있으면 고친 뒤 담아 주세요.", loose);
+  }catch(err){
+    console.error("[사전 찾기 실패]", {status, bodyText, err});
+    dictStatus("사전을 불러오지 못했어요. " + esc(diagnose(err, status, bodyText)), true);
+  }finally{
+    btn.disabled = false;
+  }
+};
+
+$("#dictSave").onclick = async ()=>{
+  const term = $("#dictTerm").value.trim();
+  const en = $("#dictEn").value.trim();
+  const ko = $("#dictKo").value.trim();
+
+  if(!term){ dictStatus("단어나 표현을 넣어 주세요.", true); $("#dictTerm").focus(); return; }
+  if(!en && !ko){ dictStatus("뜻을 하나라도 채워 주세요. 직접 적어도 됩니다.", true); return; }
+
+  // 단어장은 책 단위로 모인다. 책이 없으면 어디에 담을지 정할 수 없다.
+  if(!state.bookId){
+    dictStatus("먼저 책을 열어 주세요. 단어장은 책마다 따로 모입니다.", true);
+    return;
+  }
+  await probeMode();
+  if(!club.ok){
+    dictStatus("단어장 탭에서 이름을 먼저 알려주세요.", true);
+    switchTab("book");
+    return;
+  }
+
+  const btn = $("#dictSave");
+  btn.disabled = true;
+  const before = btn.textContent;
+  btn.textContent = "담는 중…";
+  try{
+    const res = await fetch(WB.endpoint,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
+      body:JSON.stringify({
+        book:state.bookId, by:club.name,
+        kind:"dict", term,
+        note:[en, ko].filter(Boolean).join("\n"),
+      })
+    });
+    if(!res.ok){
+      const t = await res.text().catch(()=> "");
+      dictStatus(esc(serverMessage(t) || `담지 못했어요 (HTTP ${res.status})`), true);
+      return;
+    }
+    dictStatus("단어장에 담았어요.");
+    $("#dictTerm").value=""; $("#dictEn").value=""; $("#dictKo").value="";
+    $("#dictTerm").focus();
+    loadWordbook();
+  }catch(err){
+    console.error("[사전 담기 실패]", err);
+    dictStatus("단어장 서버에 연결하지 못했어요.", true);
+  }finally{
+    btn.textContent = before;
+    btn.disabled = false;
+  }
+};
 
 // 해설 패널 아래에 잠깐 띄우는 알림. alert() 는 브라우저를 막으므로 쓰지 않는다.
 function alertInline(msg){
