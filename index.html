@@ -502,6 +502,20 @@ const AI = {
   endpoint: "/api/explain",
 };
 
+/* 응답이 끝내 오지 않으면 스피너가 영원히 돈다. Vercel 함수는 10초 안팎에서
+   끊기는데 그때 연결이 매달린 채 남으면 fetch 가 스스로 끝나지 않는다.
+   원인이 무엇이든 스피너가 무한히 도는 상황 자체를 막는다. */
+async function fetchWithTimeout(url, opts={}, ms=25000){
+  const ac = new AbortController();
+  const timer = setTimeout(()=>ac.abort(), ms);
+  try{
+    return await fetch(url, {...opts, signal:ac.signal});
+  }finally{
+    clearTimeout(timer);
+  }
+}
+const isTimeout = err => err && (err.name === "AbortError" || err.name === "TimeoutError");
+
 /* ---------------- file loading ---------------- */
 const fileInput = $("#fileInput");
 $("#reopenBtn").onclick = () => fileInput.click();
@@ -761,33 +775,66 @@ function paintHighlights(focusHit = -1){
   if(!state.needle) return;
 
   const base = layer.getBoundingClientRect();
-  const nee = state.caseSens ? state.needle : state.needle.toLowerCase();
-  let hitIdx = 0, focusEl = null;
+  const nee = (state.caseSens ? state.needle : state.needle.toLowerCase())
+                .replace(/\s+/g," ").trim();
+  if(!nee) return;
 
-  for(const span of layer.children){
-    const text = span.textContent;
-    const hay = state.caseSens ? text : text.toLowerCase();
-    const node = span.firstChild;
-    if(!node) continue;
-    let from = 0, idx;
-    while((idx = hay.indexOf(nee, from)) !== -1){
-      const range = document.createRange();
-      range.setStart(node, idx);
-      range.setEnd(node, idx + nee.length);
-      for(const rect of range.getClientRects()){
-        if(!rect.width || !rect.height) continue;
-        const d = document.createElement("div");
-        d.className = "hl";
-        d.style.left   = (rect.left - base.left) + "px";
-        d.style.top    = (rect.top  - base.top ) + "px";
-        d.style.width  = rect.width  + "px";
-        d.style.height = rect.height + "px";
-        if(hitIdx === focusHit){ d.classList.add("current"); focusEl = d; }
-        hl.appendChild(d);
+  // 텍스트 레이어 전체를 한 문자열로 이어 붙이고, 각 글자가 어느 span 의
+  // 몇 번째 글자였는지 되짚을 지도를 만든다.
+  //
+  // span 하나씩 따로 찾으면 "cognitive dissonance" 처럼 두 단어 이상인
+  // 검색어를 절대 못 찾는다. PDF 는 단어마다 텍스트 조각이 나뉘는 일이
+  // 흔해서, 검색어가 span 경계를 넘어가기 때문이다.
+  //
+  // 공백은 state.pages 와 같은 규칙(연속 공백 → 하나)으로 눌러 맞춘다.
+  // span 사이를 잇는 공백은 실제 글자가 아니므로 지도에 null 로 둔다.
+  let flat = "";
+  const map = [];
+  const spans = layer.children;
+  for(let si=0; si<spans.length; si++){
+    const txt = spans[si].textContent;
+    for(let i=0;i<txt.length;i++){
+      if(/\s/.test(txt[i])){
+        if(flat && !flat.endsWith(" ")){ flat += " "; map.push([spans[si], i]); }
+      }else{
+        flat += txt[i]; map.push([spans[si], i]);
       }
-      hitIdx++;
-      from = idx + nee.length;
     }
+    if(si < spans.length-1 && flat && !flat.endsWith(" ")){ flat += " "; map.push(null); }
+  }
+
+  const hay = state.caseSens ? flat : flat.toLowerCase();
+  let hitIdx = 0, focusEl = null, from = 0, idx;
+
+  while((idx = hay.indexOf(nee, from)) !== -1){
+    const end = idx + nee.length;
+    // 일치 구간의 양 끝이 span 사이 공백일 수 있어 실제 글자로 좁힌다
+    let a = idx;      while(a < end && !map[a]) a++;
+    let b = end - 1;  while(b >= idx && !map[b]) b--;
+
+    if(a <= b){
+      const [startSpan, startOff] = map[a];
+      const [endSpan, endOff]     = map[b];
+      if(startSpan.firstChild && endSpan.firstChild){
+        const range = document.createRange();
+        range.setStart(startSpan.firstChild, startOff);
+        range.setEnd(endSpan.firstChild, endOff + 1);
+        // span 경계를 넘는 구간은 조각마다 사각형이 나오므로 각각 밑줄이 그어진다
+        for(const rect of range.getClientRects()){
+          if(!rect.width || !rect.height) continue;
+          const d = document.createElement("div");
+          d.className = "hl";
+          d.style.left   = (rect.left - base.left) + "px";
+          d.style.top    = (rect.top  - base.top ) + "px";
+          d.style.width  = rect.width  + "px";
+          d.style.height = rect.height + "px";
+          if(hitIdx === focusHit){ d.classList.add("current"); focusEl = d; }
+          hl.appendChild(d);
+        }
+      }
+    }
+    hitIdx++;
+    from = end;   // nee 가 비어있지 않음을 위에서 보장했으므로 반드시 전진한다
   }
 
   $("#pageHits").textContent = hitIdx ? `이 쪽에 ${hitIdx}곳` : "이 쪽에는 없음";
@@ -989,6 +1036,8 @@ function serverMessage(bodyText){
 function diagnose(err, status, bodyText){
   const local = location.protocol === "file:";
   const msg = serverMessage(bodyText);
+  if(isTimeout(err))
+    return "응답이 너무 오래 걸려 중단했어요. 긴 구절이면 조금 짧게 잡아 다시 눌러 주세요.";
   if(status === 401 || status === 403)
     return "인증이 거절됐어요(401/403). " + (msg || "Vercel 프로젝트 환경변수 CF_API_TOKEN 이 비었거나 틀렸을 가능성이 큽니다.");
   if(status === 404)
@@ -1018,7 +1067,7 @@ async function callExplain(payload, loadingLabel, saveMeta){
 
   let status = 0, bodyText = "";
   try{
-    const res = await fetch(AI.endpoint,{
+    const res = await fetchWithTimeout(AI.endpoint,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify(payload)
@@ -1115,7 +1164,7 @@ async function probeMode(){
   if(club.mode !== "unknown") return club.mode;
   const book = state.bookId || "00000000";
   try{
-    const res = await fetch(`${WB.endpoint}?book=${encodeURIComponent(book)}`);
+    const res = await fetchWithTimeout(`${WB.endpoint}?book=${encodeURIComponent(book)}`, {}, 15000);
     club.mode = res.status === 401 ? "locked" : (res.ok ? "open" : "unknown");
   }catch(err){
     console.warn("[단어장] 잠김 여부 확인 실패", err);
@@ -1188,7 +1237,7 @@ async function loadWordbook(opts={}){
   list.innerHTML = `<div class="empty"><p style="font-size:13px"><span class="spinner" style="display:inline-block;vertical-align:middle"></span> 단어장을 불러오는 중…</p></div>`;
 
   try{
-    const res = await fetch(`${WB.endpoint}?book=${encodeURIComponent(state.bookId)}`,{
+    const res = await fetchWithTimeout(`${WB.endpoint}?book=${encodeURIComponent(state.bookId)}`,{
       headers:{ "x-club-pass": club.pass }
     });
     // 저장해둔 암호가 무효가 된 경우(관리자가 CLUB_PASSWORD 를 바꿨을 때).
@@ -1214,7 +1263,10 @@ async function loadWordbook(opts={}){
     return true;
   }catch(err){
     console.error("[단어장 불러오기 실패]", err);
-    list.innerHTML = `<div class="empty"><p style="font-size:13px">단어장 서버에 연결하지 못했어요.</p></div>`;
+    list.innerHTML = `<div class="empty"><p style="font-size:13px">${
+      isTimeout(err) ? "단어장 응답이 너무 오래 걸려 중단했어요.<br>새로 고침을 눌러 보세요."
+                     : "단어장 서버에 연결하지 못했어요."
+    }</p></div>`;
   }
 }
 
@@ -1276,7 +1328,7 @@ $("#saveBtn").onclick = async ()=>{
   const before = btn.textContent;
   btn.textContent = "넣는 중…";
   try{
-    const res = await fetch(WB.endpoint,{
+    const res = await fetchWithTimeout(WB.endpoint,{
       method:"POST",
       headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
       // by 를 빠뜨리면 서버가 기본값 "익명"을 쓴다 — 이름을 받아둔 게 무색해진다
@@ -1304,7 +1356,7 @@ async function removeEntry(id, btnEl){
   btnEl.disabled = true;
   btnEl.textContent = "지우는 중…";
   try{
-    const res = await fetch(WB.endpoint,{
+    const res = await fetchWithTimeout(WB.endpoint,{
       method:"POST",
       headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
       body:JSON.stringify({ book:state.bookId, action:"delete", id })
@@ -1356,7 +1408,7 @@ $("#dictLookup").onclick = async ()=>{
 
   let status = 0, bodyText = "";
   try{
-    const res = await fetch(AI.endpoint,{
+    const res = await fetchWithTimeout(AI.endpoint,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ mode:"dict", word:term })
@@ -1409,7 +1461,7 @@ $("#dictSave").onclick = async ()=>{
   const before = btn.textContent;
   btn.textContent = "담는 중…";
   try{
-    const res = await fetch(WB.endpoint,{
+    const res = await fetchWithTimeout(WB.endpoint,{
       method:"POST",
       headers:{ "Content-Type":"application/json", "x-club-pass": club.pass },
       body:JSON.stringify({
