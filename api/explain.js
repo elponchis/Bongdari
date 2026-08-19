@@ -36,7 +36,12 @@ const MAX_TOKENS = 700;    // 안 주면 기본값이 낮아 답이 잘린다
 // 구절 모드는 세 항목을 쓰는데다, 이 모델이 답 전에 사고 과정을 쓰는
 // 경우가 있어 그 몫까지 넉넉히 줘야 한다. 900 으로는 사고만 하다
 // 끝나서 답이 통째로 비었다. 상한이라 안 쓰면 청구되지 않는다.
+// 이 모델의 사고 분량은 입력 길이에 따라 늘어난다. 5,524자 구절에서
+// 1,800 으로는 사고에 다 쓰고 답이 빈 문자열로 왔다(컨텍스트 한도
+// 256k 토큰은 근처도 아니었으니 한도 문제가 아니다).
+// 그래서 구절 길이에 맞춰 예산을 늘린다.
 const MAX_TOKENS_PASSAGE = 1800;
+const passageBudget = chars => Math.min(4000, MAX_TOKENS_PASSAGE + Math.floor(chars / 4));
 // 사전 모드는 두 줄만 쓰지만, 이 모델이 답 전에 사고 과정을 쓰므로
 // 그 몫을 함께 준다. 900 정도면 사고 + 두 줄이 들어간다.
 const MAX_TOKENS_DICT = 900;
@@ -195,7 +200,11 @@ ${usedPassage}${passageContext}`
 ${String(context).slice(0, MAX_CONTEXT)}`;
 
   const systemPrompt = isDict ? SYSTEM_DICT : isPassage ? SYSTEM_PASSAGE : SYSTEM_WORD;
-  const maxTokens = isDict ? MAX_TOKENS_DICT : isPassage ? MAX_TOKENS_PASSAGE : MAX_TOKENS;
+  const maxTokens = isDict
+    ? MAX_TOKENS_DICT
+    : isPassage
+    ? passageBudget(usedPassage.length)
+    : MAX_TOKENS;
 
   const url =
     `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}` +
@@ -236,9 +245,15 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       return res.status(r.status === 200 ? 502 : r.status).json({ error: msg });
     }
 
+    // 이 모델은 사고 내용을 response 밖에 두는 듯해서, 사고에 예산을 다
+    // 쓰면 response 가 빈 문자열로 온다. 다른 자리에 답이 있을 수도 있어
+    // 알려진 형태를 모두 훑는다.
+    const cand = data?.result?.choices?.[0]?.message;
     const rawText =
       data?.result?.response ??
-      data?.result?.choices?.[0]?.message?.content ??
+      cand?.content ??
+      cand?.reasoning_content ??
+      data?.result?.reasoning ??
       "";
     // 한국어 전용 필터는 단어 모드에서만 쓴다. 구절 답변에는 영어 용어
     // 줄이, 사전 답변에는 EN: 줄이 정상적으로 섞이므로 걸러내면 안 된다.
@@ -249,10 +264,25 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
     // 이제는 구분해서 알려주고, 모르면 원본을 감추지 않고 그대로 보여준다.
     if (!text) {
       const raw = String(rawText).trim();
-      console.warn("정리 후 남은 답이 없음. 원본:", raw.slice(0, 800));
+      // 빈 응답일 때 원본만 찍으면 아무것도 안 나온다 — 응답의 모양과
+      // 사용량을 함께 남겨야 다음에 원인을 짚을 수 있다.
+      console.warn("정리 후 남은 답이 없음", {
+        원본: raw.slice(0, 800),
+        result키: Object.keys(data?.result || {}),
+        usage: data?.result?.usage ?? data?.usage,
+        요청토큰상한: maxTokens,
+        구절길이: usedPassage.length,
+      });
 
       if (!raw) {
-        return res.status(200).json({ text: "모델이 빈 응답을 돌려줬어요. 다시 시도해 주세요." });
+        // "다시 시도해 주세요"는 틀린 조언이었다. 같은 길이로 다시 누르면
+        // 같은 결과가 난다. 길이가 원인이므로 그렇게 안내한다.
+        return res.status(200).json({
+          text: isPassage
+            ? `구절이 길어(${usedPassage.length.toLocaleString()}자) 모델이 생각하는 데 예산을 다 써버렸어요.\n` +
+              `절반 정도로 나눠서 두 번 해설하면 잘 나옵니다.`
+            : "모델이 빈 응답을 돌려줬어요. 다시 시도해 주세요.",
+        });
       }
       if (/<think>/i.test(raw)) {
         return res.status(200).json({
