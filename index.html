@@ -1074,7 +1074,7 @@ $("#wbEnter").onclick = async ()=>{
   // 나중에 저장 시점에야 실패해서 원인을 헷갈리게 된다.
   club.save(name, pass);
   err.classList.add("hidden");
-  const ok = await loadWordbook({quiet:false});
+  const ok = await loadWordbook({fromGate:true});
   if(ok === false){
     club.clear();
     syncWordbookGate();
@@ -1104,7 +1104,19 @@ async function loadWordbook(opts={}){
     const res = await fetch(`${WB.endpoint}?book=${encodeURIComponent(state.bookId)}`,{
       headers:{ "x-club-pass": club.pass }
     });
-    if(res.status === 401) return false;
+    // 저장해둔 암호가 무효가 된 경우(관리자가 CLUB_PASSWORD 를 바꿨을 때).
+    // 그냥 돌아가면 화면이 로딩 상태로 멈춰버리므로, 암호를 비우고
+    // 게이트로 되돌려 다시 넣게 한다. 암호 입력 중일 때는 그쪽에서 처리한다.
+    if(res.status === 401){
+      if(!opts.fromGate){
+        club.clear();
+        syncWordbookGate();
+        const err = $("#wbErr");
+        err.textContent = "암호가 바뀐 것 같아요. 다시 넣어 주세요.";
+        err.classList.remove("hidden");
+      }
+      return false;
+    }
     if(!res.ok){
       const t = await res.text().catch(()=> "");
       list.innerHTML = `<div class="empty"><p style="font-size:13px">단어장을 불러오지 못했어요.<br>${esc(serverMessage(t) || "HTTP "+res.status)}</p></div>`;
