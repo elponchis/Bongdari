@@ -14,11 +14,25 @@
 // index.html 은 고칠 필요 없다. 주고받는 형식({word, context} → {text})이 같다.
 
 // 모델 선택 주의 — 추론(thinking) 모델을 쓰면 안 된다.
-// 처음에 @cf/qwen/qwen3-30b-a3b-fp8 을 썼다가 사고 과정을 그대로 쏟아냈다:
-// "Okay, let's tackle this question..." 하며 자기 답을 영어로 재검토하고
-// 같은 답을 여러 번 반복해서 화면에 그대로 노출됐다. 출력 토큰도 크게 낭비된다.
-// 바꾸려면 반드시 비추론 instruct 모델로 고를 것.
-const MODEL = "@cf/google/gemma-4-26b-a4b-it";
+//
+// 지나온 경로:
+//   qwen3-30b-a3b-fp8  사고 과정을 화면에 그대로 쏟아냈다
+//   gemma-4-26b-a4b-it 사고를 감추지만 여전히 하므로, (1) 30초 넘게 걸리고
+//                      (2) 긴 구절에서 예산을 사고에 다 써 답이 비었고
+//                      (3) 10명이 쓰면 무료 한도의 94%를 먹었다
+//   llama-3.1-8b-instruct-fp8  ← 현재. 비추론이라 위 셋이 함께 해결된다
+//
+// 바꿀 때 확인할 것:
+//   · 모델 페이지에 Reasoning 이 없어야 한다(있으면 위 문제가 되돌아온다)
+//   · 토큰 파라미터 이름을 확인할 것. 이 계열은 max_tokens 이고 기본값이
+//     256 이다. gemma 계열은 max_completion_tokens 다. 틀리면 무시되고
+//     256 에서 잘린다. 그래서 아래에서 둘 다 보낸다.
+//
+// 대안 (10명 기준 무료 한도 점유율):
+//   @cf/meta/llama-3.1-8b-instruct-awq        37% · 조금 더 싸고 조금 더 거침
+//   @cf/mistralai/mistral-small-3.1-24b-instruct  91% · 품질은 낫지만 입력
+//     단가가 3.5배여서 용량 이득이 거의 없다. 유료 전환을 전제할 때만.
+const MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
 
 const MAX_CONTEXT = 1200;  // 문맥 길이 상한 (글자)
 
@@ -32,19 +46,18 @@ const MAX_PASSAGE = 6000;
 // 구절이 이보다 길면 쪽 전문을 따로 붙이지 않는다 — 이미 그 쪽을 거의
 // 다 담고 있어서 같은 내용을 두 번 보내는 셈이 된다.
 const CONTEXT_SKIP_OVER = 1500;
-const MAX_TOKENS = 700;    // 안 주면 기본값이 낮아 답이 잘린다
+// 비추론 모델이므로 출력은 곧 답의 길이다. 사고 몫을 얹을 필요가 없어
+// 예산이 크게 줄었다 — 이게 용량과 속도가 함께 좋아진 이유다.
+const MAX_TOKENS = 400;    // 안 주면 기본값 256 에서 잘린다
 // 구절 모드는 세 항목을 쓰는데다, 이 모델이 답 전에 사고 과정을 쓰는
 // 경우가 있어 그 몫까지 넉넉히 줘야 한다. 900 으로는 사고만 하다
 // 끝나서 답이 통째로 비었다. 상한이라 안 쓰면 청구되지 않는다.
-// 이 모델의 사고 분량은 입력 길이에 따라 늘어난다. 5,524자 구절에서
-// 1,800 으로는 사고에 다 쓰고 답이 빈 문자열로 왔다(컨텍스트 한도
-// 256k 토큰은 근처도 아니었으니 한도 문제가 아니다).
-// 그래서 구절 길이에 맞춰 예산을 늘린다.
-const MAX_TOKENS_PASSAGE = 1800;
-const passageBudget = chars => Math.min(4000, MAX_TOKENS_PASSAGE + Math.floor(chars / 4));
-// 사전 모드는 두 줄만 쓰지만, 이 모델이 답 전에 사고 과정을 쓰므로
-// 그 몫을 함께 준다. 900 정도면 사고 + 두 줄이 들어간다.
-const MAX_TOKENS_DICT = 900;
+// 세 항목(논지·용어·요약)을 쓰기에 충분한 양. 추론 모델일 때는 사고 몫까지
+// 얹어 최대 4,000까지 늘려야 했는데, 그래도 긴 구절에서 답이 비었다.
+// 비추론 모델에서는 입력 길이와 무관하게 답 길이만 필요하므로 고정한다.
+const MAX_TOKENS_PASSAGE = 900;
+// 사전 모드는 두 줄만 쓴다. 비추론 모델이라 사고 몫이 필요 없다.
+const MAX_TOKENS_DICT = 300;
 
 // 원문이 영어라 모델이 영어로 답해버리기 쉽다. system 으로 못박는다.
 const SYSTEM_WORD =
@@ -200,11 +213,7 @@ ${usedPassage}${passageContext}`
 ${String(context).slice(0, MAX_CONTEXT)}`;
 
   const systemPrompt = isDict ? SYSTEM_DICT : isPassage ? SYSTEM_PASSAGE : SYSTEM_WORD;
-  const maxTokens = isDict
-    ? MAX_TOKENS_DICT
-    : isPassage
-    ? passageBudget(usedPassage.length)
-    : MAX_TOKENS;
+  const maxTokens = isDict ? MAX_TOKENS_DICT : isPassage ? MAX_TOKENS_PASSAGE : MAX_TOKENS;
 
   const url =
     `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}` +
@@ -225,6 +234,10 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        // 모델 계열마다 이름이 다르다(llama·mistral 은 max_tokens, gemma 는
+        // max_completion_tokens). 틀리면 무시되고 기본값 256 에서 잘리므로
+        // 둘 다 보낸다 — 모르는 필드는 무시되니 안전하다.
+        max_tokens: maxTokens,
         max_completion_tokens: maxTokens,
         temperature: 0.3,
       }),
@@ -275,12 +288,12 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       });
 
       if (!raw) {
-        // "다시 시도해 주세요"는 틀린 조언이었다. 같은 길이로 다시 누르면
-        // 같은 결과가 난다. 길이가 원인이므로 그렇게 안내한다.
+        // 추론 모델이던 시절에는 "사고에 예산을 다 썼다"가 원인이었지만,
+        // 비추론 모델에서는 그 진단이 맞지 않는다. 모델 가정에 기대지 않는
+        // 문구로 둔다 — 위 로그에 실제 응답 모양이 남으니 그걸로 짚는다.
         return res.status(200).json({
           text: isPassage
-            ? `구절이 길어(${usedPassage.length.toLocaleString()}자) 모델이 생각하는 데 예산을 다 써버렸어요.\n` +
-              `절반 정도로 나눠서 두 번 해설하면 잘 나옵니다.`
+            ? "모델이 빈 응답을 돌려줬어요. 구절을 조금 짧게 잡아 다시 눌러 주세요."
             : "모델이 빈 응답을 돌려줬어요. 다시 시도해 주세요.",
         });
       }
