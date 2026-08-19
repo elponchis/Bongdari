@@ -7,7 +7,7 @@
 //
 // index.html 은 하나도 안 고쳐도 됩니다. 주고받는 형식({word, context} → {text})이 같습니다.
 
-const MODEL = "gemini-2.5-flash"; // 무료 등급 모델. 한도 초과 시 gemini-2.5-flash-lite 로 바꿔 보세요.
+const MODEL = "gemini-3.6-flash"; // 무료 등급 모델. 한도 초과 시 gemini-2.5-flash-lite 로 바꿔 보세요.
 const MAX_CONTEXT = 1200;
 
 export default async function handler(req, res) {

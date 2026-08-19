@@ -485,7 +485,7 @@ async function renderPage(pageNum){
 function diagnose(err, status, bodyText){
   const local = location.protocol === "file:";
   if(status === 401 || status === 403)
-    return "인증이 거절됐어요(401/403). Vercel 프로젝트 환경변수 ANTHROPIC_API_KEY가 비었거나 틀렸을 가능성이 큽니다.";
+    return "인증이 거절됐어요(401/403). Vercel 프로젝트 환경변수 GEMINI_API_KEY가 비었거나 틀렸을 가능성이 큽니다.";
   if(status === 404)
     return "/api/explain 을 찾지 못했어요(404). api/explain.js 파일이 프로젝트 루트의 api 폴더에 있는지 확인해 주세요.";
   if(status === 429)
