@@ -11,7 +11,9 @@
     --card:#F4EFE2;
     --card-2:#EDE6D4;
     --ink:#221E18;
-    --muted:#8A7F6B;
+    /* 보조 문구가 흐리다는 피드백. 같은 갈색 계열을 유지하면서 대비만
+       올렸다: card-2 배경 대비 3.17 → 4.62 (WCAG AA 본문 기준 4.5) */
+    --muted:#6E6553;
     --line:#D6CDB6;
     --bind:#2E3D33;
     --bind-ink:#EFF3EC;
@@ -84,7 +86,7 @@
     background:var(--card);border:1.5px solid var(--line);border-radius:10px;
     padding:14px 46px 14px 16px;outline:none;transition:border-color .15s;
   }
-  .searchrow input::placeholder{color:#b6ab93;font-style:italic}
+  .searchrow input::placeholder{color:#9C9179;font-style:italic}
   .searchrow input:focus{border-color:var(--bind)}
   .searchrow .glass{
     position:absolute;right:14px;color:var(--muted);pointer-events:none;font-size:18px
@@ -248,7 +250,7 @@
   }
   .dictform input{font-family:var(--serif);font-size:18px}
   .dictform input:focus,.dictform textarea:focus{border-color:var(--bind)}
-  .dictform input::placeholder,.dictform textarea::placeholder{color:#b6ab93;font-style:italic}
+  .dictform input::placeholder,.dictform textarea::placeholder{color:#9C9179;font-style:italic}
   .dictform > .btn{width:100%;margin-top:12px}
   .dictform .dstatus{
     margin-top:10px;font-size:12px;line-height:1.6;color:var(--muted);
@@ -282,9 +284,9 @@
   .wbitem .term{font-family:var(--serif);font-size:16px;font-weight:600;flex:1;word-break:break-word}
   .wbitem .pg{font-family:var(--mono);font-size:11px;color:var(--ref);cursor:pointer;text-decoration:underline;white-space:nowrap}
   .wbitem .note{font-size:13px;line-height:1.6;color:#3a332a;white-space:pre-wrap}
-  .wbitem .foot{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .wbitem .foot{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--muted)}
   .wbitem .foot .spacer{flex:1}
-  .wbitem .del{background:none;border:none;color:var(--muted);cursor:pointer;font:inherit;font-size:10px;text-decoration:underline;padding:0}
+  .wbitem .del{background:none;border:none;color:var(--muted);cursor:pointer;font:inherit;font-size:11px;text-decoration:underline;padding:0}
   .wbitem .del:hover{color:var(--ref)}
 
   .spinner{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--bind);border-radius:50%;animation:spin .7s linear infinite}
