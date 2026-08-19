@@ -49,17 +49,22 @@ function cleanAnswer(raw) {
   // 답을 쓴 뒤 영어로 자기 답을 재검토하며 계속 떠드는 경우가 있다.
   // 답변은 한국어여야 하므로, 한국어 줄만 모으고 한글이 없는 줄이
   // 나오면 군더더기가 시작된 것으로 보고 끊는다.
+  // 빈 줄에서 끊으면 안 된다 — 모델이 사전적 의미와 문맥상 의미를
+  // 문단으로 나눠 쓰는 경우가 흔해서, 그러면 뒷문장이 통째로 잘린다.
+  // 끊는 기준은 "답이 시작된 뒤에 나오는 비한국어 줄" 하나뿐이다.
   const kept = [];
+  let started = false;
   for (const line of light.split("\n")) {
     const s = line.trim();
     if (!s) {
-      if (kept.length) break; // 답 이후의 빈 줄 = 여기서 끝
+      if (started) kept.push(""); // 문단 구분은 보존
       continue;
     }
     if (!/[가-힣]/.test(s)) {
-      if (kept.length) break; // 답 이후의 비한국어 줄 = 군더더기
-      continue;               // 답 이전이면 머리말이므로 버린다
+      if (started) break; // 답 이후의 비한국어 줄 = 군더더기
+      continue;           // 답 이전이면 머리말이므로 버린다
     }
+    started = true;
     kept.push(s);
   }
   const strict = kept.join("\n").trim();
