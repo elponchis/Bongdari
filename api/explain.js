@@ -10,6 +10,11 @@
 const MODEL = "gemini-3.6-flash"; // 무료 등급 모델. 한도 초과 시 gemini-3.5-flash-lite 로 바꿔 보세요.
 const MAX_CONTEXT = 1200;
 
+// Gemini 3.x 는 답을 쓰기 전에 내부 추론(thinking)을 하고, 그 토큰도
+// maxOutputTokens 에서 함께 깎인다. 600 으로는 추론에 다 쓰고 본문이
+// 한두 줄 나오다 잘렸다. 넉넉히 준다 — 실제 청구는 쓴 만큼만 된다.
+const MAX_TOKENS = 2000;
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "POST만 허용됩니다." });
@@ -39,7 +44,7 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 600, temperature: 0.3 },
+        generationConfig: { maxOutputTokens: MAX_TOKENS, temperature: 0.3 },
       }),
     });
 
@@ -55,10 +60,26 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       return res.status(r.status).json({ error: msg });
     }
 
-    const text = (data?.candidates?.[0]?.content?.parts || [])
+    const cand = data?.candidates?.[0];
+    const text = (cand?.content?.parts || [])
       .map((p) => p.text || "")
       .join("\n")
       .trim();
+
+    // 잘린 답을 멀쩡한 답인 척 돌려주지 않는다.
+    // MAX_TOKENS = 길이 제한, SAFETY = 안전 필터에 걸림.
+    if (cand?.finishReason === "MAX_TOKENS") {
+      console.warn("Gemini 응답이 길이 제한에 걸림", { usage: data?.usageMetadata });
+      return res.status(200).json({
+        text: (text ? text + "\n\n" : "") + "…(길이 제한에 걸려 여기서 끊겼어요.)",
+      });
+    }
+    if (cand?.finishReason && cand.finishReason !== "STOP") {
+      console.warn("Gemini 비정상 종료", cand.finishReason);
+      return res.status(200).json({
+        text: text || `답을 받지 못했어요. (종료 사유: ${cand.finishReason})`,
+      });
+    }
 
     return res.status(200).json({ text });
   } catch (err) {
