@@ -20,6 +20,12 @@
 // 바꾸려면 반드시 비추론 instruct 모델로 고를 것.
 const MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
+// 이 모델의 뉴런 단가(1M 토큰당). 응답의 실제 토큰 수에 곱해 사용량을
+// 돌려주면, 클라이언트가 "오늘 얼마나 썼는지"를 눌러보지 않고도 알 수 있다.
+// 모델을 바꾸면 이 값도 같이 바꿔야 한다 — 모델 페이지의 Pricing 참고.
+const NEURONS_PER_M = { input: 9091, output: 27273 };
+const FREE_NEURONS_PER_DAY = 10000;
+
 const MAX_CONTEXT = 1200;  // 문맥 길이 상한 (글자)
 
 // 드래그로 집은 구절 길이 상한. 2000 이었을 때는 책 한 페이지를 전체
@@ -238,9 +244,28 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
         (data?.errors || []).map((e) => e?.message).filter(Boolean).join(" / ") ||
         `HTTP ${r.status}`;
       console.error("Workers AI error", r.status, JSON.stringify(data));
+
+      // 두 가지를 구분해야 한다. 지금까지 429 를 모두 "잠시 후 다시"로
+      // 안내했는데, 하루 뉴런 한도가 소진된 경우엔 틀린 조언이다 —
+      // 몇 초 기다려도 소용없고 다음날 09:00(KST)까지 막힌다.
+      //   · 분당 속도 제한(300 req/min)  → 잠깐 기다리면 풀린다
+      //   · 하루 무료 뉴런 소진          → 초기화 또는 유료 전환뿐
+      const quotaExhausted =
+        /neuron|daily|quota|exceeded.*limit|limit.*exceeded|out of/i.test(detail);
+
+      if (quotaExhausted) {
+        return res.status(r.status === 200 ? 502 : r.status).json({
+          error:
+            "오늘 무료 사용량(하루 10,000 뉴런)을 다 썼어요.\n" +
+            "한국시간 오전 9시에 초기화됩니다. 계속 쓰려면 Cloudflare에서 " +
+            "Workers Paid로 전환하세요(초과분만 1,000뉴런당 $0.011).",
+          quota: true,
+          upstream: detail,
+        });
+      }
       const msg =
         r.status === 429
-          ? "무료 사용 한도를 넘었어요. 잠시 후 다시 시도해 주세요."
+          ? "요청이 너무 잦아요. 30초쯤 뒤에 다시 눌러 주세요. (" + detail + ")"
           : detail;
       return res.status(r.status === 200 ? 502 : r.status).json({ error: msg });
     }
@@ -295,11 +320,24 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       return res.status(200).json({ text: raw.slice(0, 600) });
     }
 
-    // truncated 를 함께 보내 클라이언트가 "뒷부분은 빠졌다"고 알릴 수 있게 한다
+    // truncated 를 함께 보내 클라이언트가 "뒷부분은 빠졌다"고 알릴 수 있게 한다.
+    // usage 는 이번 요청이 실제로 쓴 뉴런 — 클라이언트가 하루치를 더해
+    // 한도에 가까워지면 미리 알려줄 수 있게 한다. 조용히 죽지 않도록.
+    const u = data?.result?.usage ?? data?.usage ?? null;
+    const inTok = Number(u?.prompt_tokens ?? u?.input_tokens ?? 0);
+    const outTok = Number(u?.completion_tokens ?? u?.output_tokens ?? 0);
+    const neurons =
+      inTok || outTok
+        ? (inTok * NEURONS_PER_M.input + outTok * NEURONS_PER_M.output) / 1e6
+        : null;
+
     return res.status(200).json({
       text,
       ...(passageTruncated
         ? { truncated: { used: MAX_PASSAGE, total: rawPassage.length } }
+        : {}),
+      ...(neurons !== null
+        ? { usage: { neurons: Math.round(neurons * 10) / 10, dailyFree: FREE_NEURONS_PER_DAY } }
         : {}),
     });
   } catch (err) {
