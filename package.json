@@ -1,0 +1,7 @@
+{
+  "name": "bongdari-reading-club",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "봉다리 리딩 클럽 · 단어 색인 — PDF 단어 검색 + 문맥 뜻풀이"
+}

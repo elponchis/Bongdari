@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>봉다리 리딩 클럽 · 단어 색인</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --bg:#E7E0CE;
+    --card:#F4EFE2;
+    --card-2:#EDE6D4;
+    --ink:#221E18;
+    --muted:#8A7F6B;
+    --line:#D6CDB6;
+    --bind:#2E3D33;
+    --bind-ink:#EFF3EC;
+    --mark:#F2D64B;
+    --ref:#7C3B33;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Charter,Georgia,"Apple SD Gothic Neo","Malgun Gothic",serif;
+    --sans:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",Segoe UI,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;min-height:100%;
+  }
+
+  /* ---------- masthead ---------- */
+  header{
+    display:flex;align-items:center;gap:0;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#EFE9D9,#E7E0CE);
+  }
+  .spine{
+    width:14px;align-self:stretch;
+    background:
+      repeating-linear-gradient(180deg,var(--bind) 0 10px,#26332B 10px 20px);
+    box-shadow:inset -3px 0 6px rgba(0,0,0,.25);
+  }
+  .brand{padding:14px 20px;display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+  .brand h1{
+    font-family:var(--serif);font-weight:600;letter-spacing:-.01em;
+    font-size:clamp(19px,2.4vw,26px);margin:0;line-height:1.05;
+  }
+  .brand .sub{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .filechip{
+    margin:0 18px 0 8px;display:flex;align-items:center;gap:10px;
+    font-size:13px;color:var(--muted);max-width:38%;
+  }
+  .filechip b{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px}
+  .btn{
+    font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;
+    border:1px solid var(--bind);background:var(--bind);color:var(--bind-ink);
+    padding:8px 14px;border-radius:7px;transition:transform .08s ease,filter .15s ease;
+  }
+  .btn:hover{filter:brightness(1.08)}
+  .btn:active{transform:translateY(1px)}
+  .btn.ghost{background:transparent;color:var(--bind);border-color:var(--line)}
+  .btn.ghost:hover{background:#0000000a}
+  .btn:disabled{opacity:.4;cursor:default}
+
+  /* ---------- layout ---------- */
+  main{flex:1;display:grid;grid-template-columns:minmax(340px,440px) 1fr;min-height:0}
+  .panel{min-height:0;display:flex;flex-direction:column}
+  .panel.left{border-right:1px solid var(--line);background:var(--card-2)}
+  .panel.right{background:var(--bg)}
+
+  /* ---------- search box ---------- */
+  .search{padding:18px 18px 12px}
+  .searchrow{position:relative;display:flex;align-items:center}
+  .searchrow input{
+    width:100%;font-family:var(--serif);font-size:20px;color:var(--ink);
+    background:var(--card);border:1.5px solid var(--line);border-radius:10px;
+    padding:14px 46px 14px 16px;outline:none;transition:border-color .15s;
+  }
+  .searchrow input::placeholder{color:#b6ab93;font-style:italic}
+  .searchrow input:focus{border-color:var(--bind)}
+  .searchrow .glass{
+    position:absolute;right:14px;color:var(--muted);pointer-events:none;font-size:18px
+  }
+  .meta{
+    margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--muted);
+    display:flex;gap:14px;align-items:center;letter-spacing:.02em;
+  }
+  .meta .count b{color:var(--ref);font-size:14px}
+  .opts{margin-left:auto;display:flex;gap:12px}
+  .opts label{display:flex;gap:5px;align-items:center;cursor:pointer;font-family:var(--sans);font-size:12px;color:var(--muted)}
+
+  /* ---------- results ---------- */
+  .results{flex:1;overflow:auto;padding:4px 12px 20px}
+  .entry{
+    display:block;width:100%;text-align:left;cursor:pointer;
+    background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);
+    border-radius:8px;padding:11px 13px;margin:8px 6px;font:inherit;color:inherit;
+    transition:border-color .12s,transform .06s;
+  }
+  .entry:hover{border-left-color:var(--ref)}
+  .entry.active{border-left-color:var(--bind);background:#fff8e9}
+  .entry .ref{
+    font-family:var(--mono);font-size:11px;color:var(--ref);letter-spacing:.06em;
+    text-transform:uppercase;margin-bottom:5px;display:flex;justify-content:space-between;
+  }
+  .entry .snip{font-size:14px;line-height:1.55;color:#3a332a}
+  mark.mark{
+    background:linear-gradient(115deg,rgba(242,214,75,.9),rgba(242,214,75,.55));
+    mix-blend-mode:multiply;color:inherit;padding:0 .06em;border-radius:2px;
+    box-decoration-break:clone;-webkit-box-decoration-break:clone;
+  }
+
+  /* ---------- empty / progress ---------- */
+  .empty{padding:40px 26px;color:var(--muted);text-align:center}
+  .empty .mk{font-family:var(--serif);font-size:44px;color:var(--line);line-height:1}
+  .empty p{margin:14px 0 0;font-size:14px;line-height:1.6}
+  .empty .drop{
+    margin-top:20px;border:1.5px dashed var(--line);border-radius:12px;padding:26px 18px;
+    background:var(--card);cursor:pointer;transition:border-color .15s,background .15s;
+  }
+  .empty .drop:hover{border-color:var(--bind);background:#fff9ee}
+  .empty .drop.drag{border-color:var(--bind);background:#fff3d6}
+  .empty .drop b{color:var(--ink)}
+  .progress{margin:18px auto 0;max-width:280px}
+  .bar{height:6px;background:var(--line);border-radius:99px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;background:var(--bind);transition:width .2s}
+  .progress .lbl{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px}
+
+  /* ---------- preview ---------- */
+  .preview{flex:1;overflow:auto;padding:22px 26px 40px}
+  .preview .placeholder{
+    height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--muted);text-align:center;gap:8px;
+  }
+  .preview .placeholder .mk{font-family:var(--serif);font-size:40px;color:var(--line)}
+  .snipcard{
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;max-width:760px;margin:0 auto 16px;
+  }
+  .snipcard .ref{font-family:var(--mono);font-size:12px;color:var(--ref);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+  .snipcard .big{font-family:var(--serif);font-size:19px;line-height:1.7;color:#332d25}
+  .nav{display:flex;align-items:center;gap:10px;max-width:760px;margin:0 auto 14px}
+  .nav .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .nav .spacer{flex:1}
+  .explain{
+    max-width:760px;margin:0 auto 18px;background:#fbf7ea;border:1px solid var(--line);
+    border-radius:12px;padding:0;overflow:hidden;
+  }
+  .explain .head{
+    display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+  }
+  .explain .head .t{font-family:var(--serif);font-size:15px;font-weight:600}
+  .explain .body{padding:14px 16px;font-size:14px;line-height:1.7;color:#3a332a;white-space:pre-wrap}
+  .explain .body.dim{color:var(--muted);font-style:italic}
+  .pagewrap{max-width:760px;margin:0 auto;background:#fff;border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 6px 24px rgba(40,30,15,.12);overflow:hidden}
+  .pagewrap canvas{display:block;width:100%;height:auto}
+  .pagecap{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center;margin:10px 0 0}
+
+  .spinner{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--bind);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .hidden{display:none !important}
+  input[type=file]{display:none}
+
+  @media (max-width:860px){
+    main{grid-template-columns:1fr;grid-template-rows:auto auto}
+    .panel.left{border-right:none;border-bottom:1px solid var(--line);max-height:52vh}
+    .filechip{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none !important;animation-duration:.001s !important}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="spine" aria-hidden="true"></div>
+    <div class="brand">
+      <h1>봉다리 리딩 클럽</h1>
+      <span class="sub">단어 색인 · Concordance</span>
+    </div>
+    <div class="filechip" id="filechip">
+      <b id="fileName">불러온 책 없음</b>
+    </div>
+    <button class="btn ghost" id="reopenBtn" style="margin-right:18px">책 열기</button>
+  </header>
+
+  <main>
+    <!-- LEFT: search + results -->
+    <section class="panel left">
+      <div class="search">
+        <div class="searchrow">
+          <input id="q" type="search" placeholder="찾을 단어를 입력하세요" autocomplete="off" spellcheck="false" disabled />
+          <span class="glass">⌕</span>
+        </div>
+        <div class="meta">
+          <span class="count"><b id="hitCount">0</b> 곳</span>
+          <span id="pageSpan">·</span>
+          <span class="opts">
+            <label><input type="checkbox" id="caseSens"> 대소문자</label>
+          </span>
+        </div>
+      </div>
+      <div class="results" id="results">
+        <div class="empty" id="emptyState">
+          <div class="mk">§</div>
+          <p>PDF 책을 올리면, 원하는 단어가<br>나온 <b>모든 쪽과 문맥</b>을 찾아드려요.</p>
+          <div class="drop" id="dropZone">
+            <b>PDF 올리기</b><br>
+            <span style="font-size:13px">여기를 누르거나 파일을 끌어다 놓으세요 · 700쪽도 OK</span>
+          </div>
+          <div class="progress hidden" id="progress">
+            <div class="bar"><i id="barFill"></i></div>
+            <div class="lbl" id="progLbl">읽는 중…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: preview -->
+    <section class="panel right">
+      <div class="preview" id="preview">
+        <div class="placeholder" id="previewPlaceholder">
+          <div class="mk">❧</div>
+          <div>왼쪽에서 검색 결과를 누르면<br>그 쪽을 여기서 펼쳐 보여드려요.</div>
+        </div>
+        <div id="previewContent" class="hidden"></div>
+      </div>
+    </section>
+  </main>
+
+  <input type="file" id="fileInput" accept="application/pdf,.pdf" />
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const $ = s => document.querySelector(s);
+const state = {
+  pdf:null,            // pdfjs document
+  pages:[],            // extracted text per page (index 0 => page 1)
+  matches:[],          // current search matches
+  active:-1,           // active match index
+  fileName:"",
+};
+
+const CONTEXT = 60;    // chars of context on each side
+
+/* ============================================================
+   뜻 풀이(AI) 연결 설정
+   ------------------------------------------------------------
+   같은 Vercel 프로젝트 안의 서버 함수(/api/explain)를 부릅니다.
+   같은 출처(same-origin)라서 CORS 문제가 없고,
+   API 키는 브라우저가 아니라 서버 환경변수에만 존재합니다.
+   ============================================================ */
+const AI = {
+  endpoint: "/api/explain",
+};
+
+/* ---------------- file loading ---------------- */
+const fileInput = $("#fileInput");
+$("#reopenBtn").onclick = () => fileInput.click();
+$("#dropZone").onclick  = () => fileInput.click();
+fileInput.onchange = e => { if(e.target.files[0]) loadPdf(e.target.files[0]); };
+
+const dz = $("#dropZone");
+["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("drag");}));
+dz.addEventListener("drop",e=>{
+  const f=e.dataTransfer.files[0];
+  if(f) loadPdf(f);
+});
+
+async function loadPdf(file){
+  if(file.type && file.type!=="application/pdf" && !file.name.toLowerCase().endsWith(".pdf")){
+    showEmptyMessage("이 파일은 PDF가 아니에요. PDF 파일을 올려 주세요.");
+    return;
+  }
+  resetForNewBook(file.name);
+  $("#progress").classList.remove("hidden");
+  $("#dropZone").classList.add("hidden");
+
+  try{
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    state.pdf = pdf;
+    const total = pdf.numPages;
+    const pages = new Array(total);
+
+    for(let i=1;i<=total;i++){
+      const page = await pdf.getPage(i);
+      const tc = await page.getTextContent();
+      // join text items; collapse runs of whitespace so search is stable
+      pages[i-1] = tc.items.map(it=>it.str).join(" ").replace(/\s+/g," ").trim();
+      page.cleanup();
+      if(i % 5 === 0 || i === total){
+        const pct = Math.round(i/total*100);
+        $("#barFill").style.width = pct+"%";
+        $("#progLbl").textContent = `${i.toLocaleString()} / ${total.toLocaleString()}쪽 읽는 중`;
+        await new Promise(r=>requestAnimationFrame(r)); // let UI breathe
+      }
+    }
+    state.pages = pages;
+    onBookReady(total);
+  }catch(err){
+    console.error(err);
+    showEmptyMessage("이 파일을 읽지 못했어요. 손상되지 않은 PDF인지 확인해 주세요.");
+    $("#dropZone").classList.remove("hidden");
+    $("#progress").classList.add("hidden");
+  }
+}
+
+function resetForNewBook(name){
+  state.pages=[]; state.matches=[]; state.active=-1; state.pdf=null;
+  state.fileName=name;
+  $("#fileName").textContent = name;
+  $("#q").value="";
+  $("#hitCount").textContent="0";
+  $("#pageSpan").textContent="·";
+  $("#previewContent").classList.add("hidden");
+  $("#previewContent").innerHTML="";
+  $("#previewPlaceholder").classList.remove("hidden");
+}
+
+function onBookReady(total){
+  $("#emptyState").classList.add("hidden");
+  const q = $("#q");
+  q.disabled = false;
+  q.focus();
+  $("#pageSpan").textContent = `${total.toLocaleString()}쪽 색인 완료`;
+}
+
+function showEmptyMessage(msg){
+  $("#emptyState").classList.remove("hidden");
+  $("#emptyState").querySelector("p").innerHTML = msg;
+}
+
+/* ---------------- search ---------------- */
+const qInput = $("#q");
+let debounce;
+qInput.addEventListener("input",()=>{ clearTimeout(debounce); debounce=setTimeout(runSearch,220); });
+qInput.addEventListener("keydown",e=>{ if(e.key==="Enter"){ clearTimeout(debounce); runSearch(); }});
+$("#caseSens").addEventListener("change",runSearch);
+
+function runSearch(){
+  const raw = qInput.value.trim();
+  const caseSens = $("#caseSens").checked;
+  const results = $("#results");
+  results.querySelectorAll(".entry").forEach(n=>n.remove());
+  state.matches=[]; state.active=-1;
+
+  if(!raw){ $("#hitCount").textContent="0"; return; }
+
+  const needle = caseSens ? raw : raw.toLowerCase();
+  const pageSet = new Set();
+  const matches = [];
+
+  for(let p=0;p<state.pages.length;p++){
+    const text = state.pages[p];
+    if(!text) continue;
+    const hay = caseSens ? text : text.toLowerCase();
+    let from=0, idx;
+    while((idx = hay.indexOf(needle, from)) !== -1){
+      const start = Math.max(0, idx-CONTEXT);
+      const end   = Math.min(text.length, idx+raw.length+CONTEXT);
+      matches.push({
+        page:p+1,
+        before:(start>0?"…":"")+text.slice(start, idx),
+        match:text.slice(idx, idx+raw.length),
+        after:text.slice(idx+raw.length, end)+(end<text.length?"…":""),
+      });
+      pageSet.add(p+1);
+      from = idx + raw.length;
+      if(matches.length>=2000) break;
+    }
+    if(matches.length>=2000) break;
+  }
+
+  state.matches = matches;
+  $("#hitCount").textContent = matches.length.toLocaleString() + (matches.length>=2000?"+":"");
+  $("#pageSpan").textContent = matches.length
+    ? `· ${pageSet.size.toLocaleString()}개 쪽에서 발견`
+    : "· 이 단어는 책에 없어요";
+
+  const frag = document.createDocumentFragment();
+  const cap = Math.min(matches.length, 600);
+  for(let i=0;i<cap;i++){
+    const m = matches[i];
+    const el = document.createElement("button");
+    el.className="entry";
+    el.innerHTML =
+      `<div class="ref"><span>p. ${m.page}</span><span>#${i+1}</span></div>`+
+      `<div class="snip">${esc(m.before)}<mark class="mark">${esc(m.match)}</mark>${esc(m.after)}</div>`;
+    el.onclick = ()=>selectMatch(i, el);
+    frag.appendChild(el);
+  }
+  results.appendChild(frag);
+  if(cap<matches.length){
+    const more=document.createElement("div");
+    more.className="empty";
+    more.style.padding="10px";
+    more.innerHTML=`<p style="font-size:12px">앞쪽 ${cap.toLocaleString()}개만 표시했어요. 단어를 더 좁혀 보세요.</p>`;
+    results.appendChild(more);
+  }
+}
+
+function esc(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+/* ---------------- preview ---------------- */
+async function selectMatch(i, el){
+  state.active = i;
+  document.querySelectorAll(".entry.active").forEach(n=>n.classList.remove("active"));
+  if(el) el.classList.add("active");
+  const m = state.matches[i];
+
+  $("#previewPlaceholder").classList.add("hidden");
+  const pc = $("#previewContent");
+  pc.classList.remove("hidden");
+  pc.innerHTML = `
+    <div class="nav">
+      <button class="btn ghost" id="prevBtn">‹ 이전</button>
+      <span class="pos">${(i+1).toLocaleString()} / ${state.matches.length.toLocaleString()}</span>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="nextBtn">다음 ›</button>
+    </div>
+    <div class="snipcard">
+      <div class="ref">p. ${m.page} 문맥</div>
+      <div class="big">${esc(m.before)}<mark class="mark">${esc(m.match)}</mark>${esc(m.after)}</div>
+    </div>
+    <div class="explain">
+      <div class="head">
+        <span class="t">뜻 풀이</span>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn" id="explainBtn">이 문맥에서 무슨 뜻일까?</button>
+      </div>
+      <div class="body dim" id="explainBody">버튼을 누르면 이 문맥에 맞춰 단어의 뜻을 풀어드려요.</div>
+    </div>
+    <div class="pagewrap"><canvas id="pageCanvas"></canvas></div>
+    <div class="pagecap">${m.page}쪽 · ${esc(state.fileName)}</div>
+  `;
+  pc.querySelector("#prevBtn").disabled = i<=0;
+  pc.querySelector("#nextBtn").disabled = i>=state.matches.length-1;
+  pc.querySelector("#prevBtn").onclick = ()=>step(-1);
+  pc.querySelector("#nextBtn").onclick = ()=>step(1);
+  pc.querySelector("#explainBtn").onclick = ()=>explainWord(m);
+  $("#preview").scrollTop = 0;
+
+  renderPage(m.page);
+}
+
+function step(d){
+  const n = state.active + d;
+  if(n<0 || n>=state.matches.length) return;
+  const el = document.querySelectorAll(".entry")[n];
+  selectMatch(n, el);
+  if(el) el.scrollIntoView({block:"nearest"});
+}
+
+async function renderPage(pageNum){
+  try{
+    const page = await state.pdf.getPage(pageNum);
+    const canvas = $("#pageCanvas");
+    if(!canvas) return;
+    const wrapW = canvas.parentElement.clientWidth || 700;
+    const base = page.getViewport({scale:1});
+    const scale = Math.min(2, wrapW / base.width);
+    const viewport = page.getViewport({scale});
+    const dpr = Math.min(window.devicePixelRatio||1, 2);
+    canvas.width = Math.floor(viewport.width*dpr);
+    canvas.height = Math.floor(viewport.height*dpr);
+    canvas.style.width = viewport.width+"px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    await page.render({canvasContext:ctx, viewport}).promise;
+    page.cleanup();
+  }catch(err){ console.error(err); }
+}
+
+/* ---------------- AI 뜻 풀이 ---------------- */
+function diagnose(err, status, bodyText){
+  const local = location.protocol === "file:";
+  if(status === 401 || status === 403)
+    return "인증이 거절됐어요(401/403). Vercel 프로젝트 환경변수 ANTHROPIC_API_KEY가 비었거나 틀렸을 가능성이 큽니다.";
+  if(status === 404)
+    return "/api/explain 을 찾지 못했어요(404). api/explain.js 파일이 프로젝트 루트의 api 폴더에 있는지 확인해 주세요.";
+  if(status === 429)
+    return "요청이 너무 잦아요(429). 30초쯤 뒤에 다시 눌러 주세요.";
+  if(status && status >= 500)
+    return "서버 쪽 오류예요(" + status + "). 잠시 후 다시 시도해 주세요.";
+  if(status)
+    return "요청이 거절됐어요(" + status + "). " + (bodyText ? bodyText.slice(0,300) : "");
+  // status 없음 = fetch 자체가 실패 = CORS / 네트워크 / 차단
+  return "서버에 연결하지 못했어요."
+    + (local ? " 지금 이 페이지는 file:// 로 열려 있습니다. /api/explain 은 배포된 주소(또는 vercel dev)에서만 동작합니다." : " 네트워크 상태를 확인해 주세요.");
+}
+
+async function explainWord(m){
+  const body = $("#explainBody");
+  const btn = $("#explainBtn");
+  body.classList.remove("dim");
+  body.innerHTML = `<span style="display:inline-flex;gap:8px;align-items:center;color:var(--muted)"><span class="spinner"></span> 뜻을 풀고 있어요…</span>`;
+  btn.disabled = true;
+
+  const context = `${m.before}${m.match}${m.after}`.replace(/…/g,"");
+  const word = m.match;
+
+  let status = 0, bodyText = "";
+  try{
+    const res = await fetch(AI.endpoint,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ word, context })
+    });
+    status = res.status;
+    if(!res.ok){
+      bodyText = await res.text().catch(()=> "");
+      throw new Error("HTTP " + status);
+    }
+    const data = await res.json();
+    body.textContent = (data.text || "").trim() || "설명이 비어 있었어요. 다시 시도해 주세요.";
+  }catch(err){
+    console.error("[뜻 풀이 실패]", {status, bodyText, err});
+    body.classList.add("dim");
+    body.textContent = "뜻 풀이를 불러오지 못했어요.\n\n원인: " + diagnose(err, status, bodyText)
+      + "\n\n(검색 기능은 정상 동작합니다.)";
+  }finally{
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
