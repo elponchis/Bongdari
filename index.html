@@ -495,7 +495,7 @@ function diagnose(err, status, bodyText){
   const local = location.protocol === "file:";
   const msg = serverMessage(bodyText);
   if(status === 401 || status === 403)
-    return "인증이 거절됐어요(401/403). " + (msg || "Vercel 프로젝트 환경변수 GEMINI_API_KEY가 비었거나 틀렸을 가능성이 큽니다.");
+    return "인증이 거절됐어요(401/403). " + (msg || "Vercel 프로젝트 환경변수 CF_API_TOKEN 이 비었거나 틀렸을 가능성이 큽니다.");
   if(status === 404)
     return msg
       ? "서버가 404와 함께 이렇게 답했어요: " + msg

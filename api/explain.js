@@ -1,26 +1,36 @@
-// Vercel Serverless Function  ·  POST /api/explain   (Google Gemini 무료 등급 버전)
+// Vercel Serverless Function  ·  POST /api/explain   (Cloudflare Workers AI 버전)
 //
 // 쓰는 법:
-//   1) https://aistudio.google.com 에서 API 키 발급 (카드 등록 불필요)
-//   2) 이 파일 이름을 api/explain.js 로 바꿔서 기존 파일을 대체
-//   3) Vercel 환경변수에 GEMINI_API_KEY 추가
+//   1) Cloudflare 무료 계정 (카드 등록 불필요)
+//   2) 대시보드 우측의 Account ID  →  환경변수 CF_ACCOUNT_ID
+//   3) My Profile → API Tokens → "Workers AI" 템플릿으로 토큰 발급
+//                               →  환경변수 CF_API_TOKEN
 //
-// index.html 은 하나도 안 고쳐도 됩니다. 주고받는 형식({word, context} → {text})이 같습니다.
+// 왜 Gemini에서 옮겼나:
+//   Gemini 무료 등급은 어느 모델이든 하루 20회(RPD 20)가 상한이라
+//   리딩 클럽 용도로 쓸 수 없었다. Workers AI 는 하루 10,000 뉴런을
+//   무료로 주는데, 이 앱은 회당 약 14 뉴런을 쓰므로 하루 700회쯤 된다.
+//   이전 Gemini 구현은 api/_explain-gemini.js 에 그대로 남겨두었다.
+//
+// index.html 은 고칠 필요 없다. 주고받는 형식({word, context} → {text})이 같다.
 
-const MODEL = "gemini-3.6-flash"; // 무료 등급 모델. 한도 초과 시 gemini-3.5-flash-lite 로 바꿔 보세요.
-const MAX_CONTEXT = 1200;
+// 무료 등급에서는 어느 모델을 골라도 회당 뉴런이 14 안팎으로 비슷하다.
+// (영어 원문이라 입력 토큰이 적고, 비용 대부분이 한국어 출력 쪽이라 그렇다)
+// 그러니 값이 아니라 품질로 고르면 된다 — 30B급을 쓴다.
+// 한국어 답변이 어색하면 @cf/google/gemma-4-26b-a4b-it 로 바꿔 보라.
+const MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
 
-// Gemini 3.x 는 답을 쓰기 전에 내부 추론(thinking)을 하고, 그 토큰도
-// maxOutputTokens 에서 함께 깎인다. 600 으로는 추론에 다 쓰고 본문이
-// 한두 줄 나오다 잘렸다. 넉넉히 준다 — 실제 청구는 쓴 만큼만 된다.
-const MAX_TOKENS = 2000;
+const MAX_CONTEXT = 1200; // 문맥 길이 상한 (글자)
+const MAX_TOKENS = 800;   // 이 값을 안 주면 기본값이 낮아 답이 잘린다
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "POST만 허용됩니다." });
   }
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "서버에 GEMINI_API_KEY가 설정되어 있지 않습니다." });
+  if (!process.env.CF_ACCOUNT_ID || !process.env.CF_API_TOKEN) {
+    return res
+      .status(500)
+      .json({ error: "서버에 CF_ACCOUNT_ID / CF_API_TOKEN 이 설정되어 있지 않습니다." });
   }
 
   const { word, context } = req.body || {};
@@ -28,57 +38,52 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "word와 context가 필요합니다." });
   }
 
+  // 원문이 영어라 모델이 영어로 답해버리기 쉽다. 한국어를 여러 번 못박는다.
   const prompt =
-`아래는 어떤 책의 한 대목입니다. 이 문맥에서 "${String(word).slice(0, 80)}"라는 단어(또는 표현)가 여기서 어떤 뜻으로 쓰였는지 한국어로 쉽고 간결하게 설명해 주세요. 사전적 뜻과, 이 문맥에서의 구체적 의미를 2~4문장으로 나눠 주세요.
+`You are helping a Korean reading club understand an English book.
 
-[문맥]
+Explain what the word or phrase "${String(word).slice(0, 80)}" means as it is used in the passage below.
+
+Rules:
+- Answer in Korean (한국어). This is required, even though the passage is English.
+- First give the dictionary meaning, then what it specifically means here.
+- 2 to 4 sentences total. No preamble, no bullet points.
+
+[Passage]
 ${String(context).slice(0, MAX_CONTEXT)}`;
 
   const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent` +
-    `?key=${process.env.GEMINI_API_KEY}`;
+    `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}` +
+    `/ai/run/${MODEL}`;
 
   try {
     const r = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: MAX_TOKENS, temperature: 0.3 },
-      }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.CF_API_TOKEN}`,
+      },
+      body: JSON.stringify({ prompt, max_tokens: MAX_TOKENS, temperature: 0.3 }),
     });
 
-    const data = await r.json();
+    const data = await r.json().catch(() => null);
 
-    if (!r.ok) {
-      console.error("Gemini API error", r.status, data);
-      // 429 = 무료 등급 하루/분당 한도 초과
+    // Workers AI 는 HTTP 200 으로도 success:false 를 돌려준다. 둘 다 봐야 한다.
+    if (!r.ok || !data?.success) {
+      const detail =
+        (data?.errors || []).map((e) => e?.message).filter(Boolean).join(" / ") ||
+        `HTTP ${r.status}`;
+      console.error("Workers AI error", r.status, JSON.stringify(data));
       const msg =
         r.status === 429
           ? "무료 사용 한도를 넘었어요. 잠시 후 다시 시도해 주세요."
-          : data?.error?.message || "API 오류";
-      return res.status(r.status).json({ error: msg });
+          : detail;
+      return res.status(r.status === 200 ? 502 : r.status).json({ error: msg });
     }
 
-    const cand = data?.candidates?.[0];
-    const text = (cand?.content?.parts || [])
-      .map((p) => p.text || "")
-      .join("\n")
-      .trim();
-
-    // 잘린 답을 멀쩡한 답인 척 돌려주지 않는다.
-    // MAX_TOKENS = 길이 제한, SAFETY = 안전 필터에 걸림.
-    if (cand?.finishReason === "MAX_TOKENS") {
-      console.warn("Gemini 응답이 길이 제한에 걸림", { usage: data?.usageMetadata });
-      return res.status(200).json({
-        text: (text ? text + "\n\n" : "") + "…(길이 제한에 걸려 여기서 끊겼어요.)",
-      });
-    }
-    if (cand?.finishReason && cand.finishReason !== "STOP") {
-      console.warn("Gemini 비정상 종료", cand.finishReason);
-      return res.status(200).json({
-        text: text || `답을 받지 못했어요. (종료 사유: ${cand.finishReason})`,
-      });
+    const text = String(data?.result?.response || "").trim();
+    if (!text) {
+      return res.status(200).json({ text: "설명이 비어 있었어요. 다시 시도해 주세요." });
     }
 
     return res.status(200).json({ text });
