@@ -205,6 +205,8 @@
   .textlayer{
     position:absolute;inset:0;overflow:hidden;z-index:2;
     line-height:1;cursor:text;
+    /* span 사이에 끼운 공백 문자도 보이지 않게 컨테이너째로 투명하게 둔다 */
+    color:transparent;
   }
   .textlayer span{
     position:absolute;white-space:pre;transform-origin:0 0;
@@ -726,6 +728,18 @@ function buildTextLayer(layer, textContent, viewport){
     span.style.top  = (tx[5] - fontHeight) + "px";
     span.style.fontSize = fontHeight + "px";
     span.style.fontFamily = "sans-serif";
+
+    // span 사이에 실제 공백 문자를 끼운다.
+    //
+    // PDF 는 단어·조각마다 텍스트 항목이 나뉘는데, span 을 그냥 이어
+    // 붙이면 그 사이에 공백이 없다. 브라우저가 선택·복사할 때는 DOM 에
+    // 있는 글자만 이어 붙이므로 "They" + "acknowledge" → "Theyacknowledge",
+    // "from" + "experience" → "fromexperience" 처럼 달라붙는다.
+    // 전치사가 앞뒤 단어에 붙어 보인 게 이것이다.
+    //
+    // 이 공백은 절대 배치된 span 들과 달리 일반 흐름에 놓이지만, 공백
+    // 문자라 눈에 보이지 않고 컨테이너가 overflow:hidden 이라 안전하다.
+    if(pending.length) frag.appendChild(document.createTextNode(" "));
     frag.appendChild(span);
     pending.push([span, (item.width || 0) * viewport.scale]);
   }
@@ -1029,6 +1043,12 @@ function diagnose(err, status, bodyText){
     + (local ? " 지금 이 페이지는 file:// 로 열려 있습니다. /api/explain 은 배포된 주소(또는 vercel dev)에서만 동작합니다." : " 네트워크 상태를 확인해 주세요.");
 }
 
+// 모드별 대기 상한. 구절 해설은 세 항목을 쓰는 데다 이 모델이 답 전에
+// 사고 과정을 쓰므로 1,000토큰 넘게 생성한다 — 30초를 넘기는 일이 흔하다.
+// 25초로 통일해뒀더니 서버는 잘 만들고 있는데 클라이언트가 먼저 끊었다.
+// Vercel 함수 상한은 넉넉하므로(Fluid 기본 300초) 여기만 늘리면 된다.
+const AI_TIMEOUT = { passage: 90000, dict: 45000, word: 45000 };
+
 async function callExplain(payload, loadingLabel, saveMeta){
   const body = $("#explainBody");
   const btn = $("#explainBtn");
@@ -1045,7 +1065,7 @@ async function callExplain(payload, loadingLabel, saveMeta){
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify(payload)
-    });
+    }, AI_TIMEOUT[payload.mode] || AI_TIMEOUT.word);
     status = res.status;
     if(!res.ok){
       bodyText = await res.text().catch(()=> "");
@@ -1091,7 +1111,8 @@ function explainPassage(passage){
     `<div class="ref">p. ${state.viewPage} 선택한 구절</div>`+
     `<div class="big">${esc(passage.length>600 ? passage.slice(0,600)+"…" : passage)}</div>`;
 
-  callExplain({ mode:"passage", passage, context }, "구절을 해설하고 있어요…",
+  callExplain({ mode:"passage", passage, context },
+    "구절을 해설하고 있어요… 길면 30초 넘게 걸릴 수 있어요",
     { kind:"passage", term:passage, page:state.viewPage });
   $("#preview").scrollTo({top:0, behavior:"smooth"});
 }
@@ -1333,7 +1354,7 @@ $("#dictLookup").onclick = async ()=>{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ mode:"dict", word:term })
-    });
+    }, AI_TIMEOUT.dict);
     status = res.status;
     if(!res.ok){
       bodyText = await res.text().catch(()=> "");
