@@ -1043,10 +1043,11 @@ function diagnose(err, status, bodyText){
     + (local ? " 지금 이 페이지는 file:// 로 열려 있습니다. /api/explain 은 배포된 주소(또는 vercel dev)에서만 동작합니다." : " 네트워크 상태를 확인해 주세요.");
 }
 
-// 모드별 대기 상한. 추론 모델이던 시절에는 사고 때문에 구절 해설이 30초를
-// 넘겨 90초까지 뒀는데, 비추론 8B 모델로 바꾼 뒤에는 답 길이만 만들면 되므로
-// 몇 초 안에 끝난다. 그래도 네트워크 지연 여지를 두고 넉넉하게 잡는다.
-const AI_TIMEOUT = { passage: 40000, dict: 25000, word: 25000 };
+// 모드별 대기 상한. 구절 해설은 세 항목을 쓰는 데다 이 모델이 답 전에
+// 사고 과정을 쓰므로 1,000토큰 넘게 생성한다 — 30초를 넘기는 일이 흔하다.
+// 25초로 통일해뒀더니 서버는 잘 만들고 있는데 클라이언트가 먼저 끊었다.
+// Vercel 함수 상한은 넉넉하므로(Fluid 기본 300초) 여기만 늘리면 된다.
+const AI_TIMEOUT = { passage: 90000, dict: 45000, word: 45000 };
 
 async function callExplain(payload, loadingLabel, saveMeta){
   const body = $("#explainBody");
@@ -1124,7 +1125,7 @@ function explainPassage(passage){
     `<div class="big">${esc(passage.length>600 ? passage.slice(0,600)+"…" : passage)}</div>`;
 
   callExplain({ mode:"passage", passage, context },
-    "구절을 해설하고 있어요…",
+    "구절을 해설하고 있어요… 길면 30초 넘게 걸릴 수 있어요",
     { kind:"passage", term:passage, page:state.viewPage });
   $("#preview").scrollTo({top:0, behavior:"smooth"});
 }
