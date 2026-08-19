@@ -331,7 +331,7 @@
 
       <div class="pane hidden" id="paneBook">
         <div class="wbgate" id="wbGate">
-          <p>단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다.</p>
+          <p id="wbGateMsg">단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다.</p>
           <input id="wbName" placeholder="이름 (예: 지수)" autocomplete="nickname" />
           <input id="wbPass" type="password" placeholder="동아리 암호" autocomplete="current-password" />
           <button class="btn" id="wbEnter" style="margin-top:6px">들어가기</button>
@@ -423,11 +423,18 @@ const state = {
   lastExplain:null,    // 방금 받은 해설 {kind, term, page, note} — 단어장 저장용
 };
 
-/* 동아리 신원: 이름과 공유 암호. 서버가 헤더로 검사하고, 이 브라우저에만 기억한다. */
+/* 동아리 신원: 이름과 (필요하면) 공유 암호. 이 브라우저에만 기억한다.
+   mode 는 서버에 한 번 물어봐서 정한다:
+     "open"   = CLUB_PASSWORD 가 없는 배포 → 이름만 있으면 된다
+     "locked" = 암호가 걸린 배포          → 이름 + 암호가 필요하다 */
 const club = {
   name: localStorage.getItem("bongdari.name") || "",
   pass: localStorage.getItem("bongdari.pass") || "",
-  get ok(){ return !!(this.name && this.pass); },
+  mode: "unknown",
+  get ok(){
+    if(!this.name) return false;
+    return this.mode === "open" ? true : !!this.pass;
+  },
   save(name, pass){
     this.name = name; this.pass = pass;
     localStorage.setItem("bongdari.name", name);
@@ -556,9 +563,8 @@ function onBookReady(total){
   $("#pgTotal").textContent = total.toLocaleString();
   showPage(1);
 
-  // 이 책의 단어장을 미리 받아 둔다 (암호가 이미 있으면)
-  syncWordbookGate();
-  if(club.ok) loadWordbook();
+  // 이 책의 단어장을 미리 받아 둔다
+  initWordbook();
 }
 
 function showEmptyMessage(msg){
@@ -1044,19 +1050,47 @@ function switchTab(which){
   $("#tabBook").classList.toggle("active", isBook);
   $("#paneSearch").classList.toggle("hidden", isBook);
   $("#paneBook").classList.toggle("hidden", !isBook);
-  if(isBook){
-    syncWordbookGate();
-    if(club.ok && state.bookId) loadWordbook();
+  if(isBook) initWordbook();
+}
+
+async function initWordbook(){
+  await probeMode();
+  syncWordbookGate();
+  if(club.ok && state.bookId) loadWordbook();
+}
+
+/* ---- 잠김 여부 확인 ----
+   암호가 걸린 배포인지 서버에 한 번 물어본다. 암호 없이 GET 해 보고
+   401 이 오면 잠긴 것이다. 이걸 물어보지 않으면, 암호가 없는 배포에서도
+   사용자에게 암호를 입력하라고 요구하게 된다. */
+async function probeMode(){
+  if(club.mode !== "unknown") return club.mode;
+  const book = state.bookId || "00000000";
+  try{
+    const res = await fetch(`${WB.endpoint}?book=${encodeURIComponent(book)}`);
+    club.mode = res.status === 401 ? "locked" : (res.ok ? "open" : "unknown");
+  }catch(err){
+    console.warn("[단어장] 잠김 여부 확인 실패", err);
+    club.mode = "unknown";
   }
+  return club.mode;
 }
 
 /* ---- 신원 게이트 ---- */
 function syncWordbookGate(){
   const on = club.ok;
+  const locked = club.mode !== "open";   // 확인 전이면 안전하게 암호를 묻는다
   $("#wbGate").classList.toggle("hidden", on);
   $("#wbHead").classList.toggle("hidden", !on);
   $("#wbList").classList.toggle("hidden", !on);
   $("#saveBtn").classList.toggle("hidden", !(on && state.lastExplain));
+
+  // 암호가 걸리지 않은 배포에서는 암호 칸을 아예 보여주지 않는다
+  $("#wbPass").classList.toggle("hidden", !locked);
+  $("#wbGateMsg").innerHTML = locked
+    ? "단어장은 <b>함께 채워가는</b> 목록이에요.<br>동아리 암호를 한 번 넣으면 이 브라우저에 기억됩니다."
+    : "단어장은 <b>함께 채워가는</b> 목록이에요.<br>누가 넣었는지 남기니 이름만 알려주세요.";
+
   if(on) $("#wbWho").textContent = `${club.name} 님으로 참여 중`;
   else { $("#wbName").value = club.name || ""; }
 }
@@ -1065,8 +1099,14 @@ $("#wbEnter").onclick = async ()=>{
   const name = $("#wbName").value.trim();
   const pass = $("#wbPass").value;
   const err = $("#wbErr");
-  if(!name || !pass){
-    err.textContent = "이름과 암호를 모두 넣어 주세요.";
+  if(!name){
+    err.textContent = "이름을 넣어 주세요.";
+    err.classList.remove("hidden");
+    return;
+  }
+  // 암호는 잠긴 배포에서만 요구한다
+  if(club.mode !== "open" && !pass){
+    err.textContent = "동아리 암호를 넣어 주세요.";
     err.classList.remove("hidden");
     return;
   }

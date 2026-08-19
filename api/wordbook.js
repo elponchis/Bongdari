@@ -65,15 +65,14 @@ export default async function handler(req, res) {
         "Vercel에서 Upstash Redis를 연결하거나 KV_REST_API_URL / KV_REST_API_TOKEN 을 넣어 주세요.",
     });
   }
-  if (!process.env.CLUB_PASSWORD) {
-    return res
-      .status(500)
-      .json({ error: "서버에 CLUB_PASSWORD 가 설정되어 있지 않습니다." });
-  }
-
-  // 공유 암호 검사
-  const pass = req.headers["x-club-pass"];
-  if (pass !== process.env.CLUB_PASSWORD) {
+  // 공유 암호는 선택 사항이다.
+  //   CLUB_PASSWORD 를 넣으면  → 그 값을 아는 사람만 읽고 쓴다
+  //   안 넣으면              → 주소를 아는 사람은 누구나 쓴다
+  // 처음부터 필수로 만들었더니 단어장을 쓰려면 환경변수를 하나 더
+  // 넣고 동아리원 전원이 암호를 입력해야 해서, 정작 기능을 못 켜는
+  // 상태가 됐다. 나중에 환경변수만 추가하면 코드 변경 없이 잠긴다.
+  const required = process.env.CLUB_PASSWORD || "";
+  if (required && req.headers["x-club-pass"] !== required) {
     return res.status(401).json({ error: "동아리 암호가 맞지 않아요." });
   }
 
