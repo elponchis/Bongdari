@@ -67,6 +67,7 @@
   .btn.ghost{background:transparent;color:var(--bind);border-color:var(--line)}
   .btn.ghost:hover{background:#0000000a}
   .btn:disabled{opacity:.4;cursor:default}
+  .btn.sm{padding:5px 10px;font-size:12px}
 
   /* ---------- layout ---------- */
   main{flex:1;display:grid;grid-template-columns:minmax(340px,440px) 1fr;min-height:0}
@@ -132,22 +133,38 @@
   .bar > i{display:block;height:100%;width:0;background:var(--bind);transition:width .2s}
   .progress .lbl{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px}
 
-  /* ---------- preview ---------- */
-  .preview{flex:1;overflow:auto;padding:22px 26px 40px}
+  /* ---------- viewer (right panel) ---------- */
+  .preview{flex:1;overflow:auto;padding:0 0 40px;position:relative}
   .preview .placeholder{
     height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
     color:var(--muted);text-align:center;gap:8px;
   }
   .preview .placeholder .mk{font-family:var(--serif);font-size:40px;color:var(--line)}
+
+  /* 페이지 이동 툴바 — 검색과 무관하게 항상 쓸 수 있어야 한다 */
+  .vbar{
+    position:sticky;top:0;z-index:12;
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:10px 26px;border-bottom:1px solid var(--line);
+    background:rgba(231,224,206,.94);backdrop-filter:blur(6px);
+  }
+  .vbar .pgpos{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .vbar .pgpos input{
+    width:58px;text-align:center;font-family:var(--mono);font-size:12px;
+    background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px 6px;color:var(--ink);
+  }
+  .vbar .hits{font-family:var(--mono);font-size:11px;color:var(--ref);letter-spacing:.04em}
+  .vbar .spacer{flex:1}
+  .vbar .mnav{display:flex;align-items:center;gap:8px}
+  .vbar .mnav .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+  .vbody{padding:18px 26px 0}
   .snipcard{
     background:var(--card);border:1px solid var(--line);border-radius:12px;
     padding:16px 18px;max-width:760px;margin:0 auto 16px;
   }
   .snipcard .ref{font-family:var(--mono);font-size:12px;color:var(--ref);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
   .snipcard .big{font-family:var(--serif);font-size:19px;line-height:1.7;color:#332d25}
-  .nav{display:flex;align-items:center;gap:10px;max-width:760px;margin:0 auto 14px}
-  .nav .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
-  .nav .spacer{flex:1}
   .explain{
     max-width:760px;margin:0 auto 18px;background:#fbf7ea;border:1px solid var(--line);
     border-radius:12px;padding:0;overflow:hidden;
@@ -158,10 +175,50 @@
   .explain .head .t{font-family:var(--serif);font-size:15px;font-weight:600}
   .explain .body{padding:14px 16px;font-size:14px;line-height:1.7;color:#3a332a;white-space:pre-wrap}
   .explain .body.dim{color:var(--muted);font-style:italic}
-  .pagewrap{max-width:760px;margin:0 auto;background:#fff;border:1px solid var(--line);
-    border-radius:10px;box-shadow:0 6px 24px rgba(40,30,15,.12);overflow:hidden}
-  .pagewrap canvas{display:block;width:100%;height:auto}
+
+  /* ---------- page render + text layer ---------- */
+  .pagewrap{
+    max-width:760px;margin:0 auto;background:#fff;border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 6px 24px rgba(40,30,15,.12);overflow:hidden;
+  }
+  /* canvas · 하이라이트 · 텍스트를 정확히 겹쳐 쌓는 기준 상자.
+     크기는 렌더할 때 viewport 픽셀값으로 JS가 직접 지정한다. */
+  .pageinner{position:relative;display:block;margin:0 auto}
+  .pageinner canvas{display:block;width:100%;height:auto}
+
+  /* 검색어 위치 표시. 텍스트 레이어 밑에 깔아 클릭을 방해하지 않는다. */
+  .hllayer{position:absolute;inset:0;pointer-events:none;z-index:1}
+  .hl{
+    position:absolute;background:rgba(242,214,75,.5);border-radius:2px;
+    mix-blend-mode:multiply;box-shadow:0 0 0 1px rgba(170,132,18,.35);
+  }
+  .hl.current{
+    background:rgba(242,214,75,.92);
+    box-shadow:0 0 0 2px var(--ref),0 0 12px rgba(124,59,51,.35);
+  }
+
+  /* 투명한 실제 텍스트. 이게 있어야 드래그 선택·복사가 된다. */
+  .textlayer{
+    position:absolute;inset:0;overflow:hidden;z-index:2;
+    line-height:1;cursor:text;
+  }
+  .textlayer span{
+    position:absolute;white-space:pre;transform-origin:0 0;
+    color:transparent;
+  }
+  .textlayer ::selection{background:rgba(46,61,51,.3)}
+  .textlayer ::-moz-selection{background:rgba(46,61,51,.3)}
+
+  /* 드래그하면 그 자리에 뜨는 버튼 */
+  .selbtn{
+    position:absolute;z-index:20;transform:translateX(-50%);
+    white-space:nowrap;box-shadow:0 4px 14px rgba(40,30,15,.3);
+  }
   .pagecap{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center;margin:10px 0 0}
+  .hint{
+    max-width:760px;margin:12px auto 0;font-size:12px;color:var(--muted);
+    text-align:center;line-height:1.6;
+  }
 
   .spinner{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--bind);border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
@@ -173,6 +230,7 @@
     main{grid-template-columns:1fr;grid-template-rows:auto auto}
     .panel.left{border-right:none;border-bottom:1px solid var(--line);max-height:52vh}
     .filechip{display:none}
+    .vbar,.vbody{padding-left:14px;padding-right:14px}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none !important;animation-duration:.001s !important}}
 </style>
@@ -222,14 +280,55 @@
       </div>
     </section>
 
-    <!-- RIGHT: preview -->
+    <!-- RIGHT: viewer -->
     <section class="panel right">
       <div class="preview" id="preview">
         <div class="placeholder" id="previewPlaceholder">
           <div class="mk">❧</div>
-          <div>왼쪽에서 검색 결과를 누르면<br>그 쪽을 여기서 펼쳐 보여드려요.</div>
+          <div>책을 올리면 여기서 바로 읽을 수 있어요.<br>읽다 막힌 문장은 드래그해서 해설을 받으세요.</div>
         </div>
-        <div id="previewContent" class="hidden"></div>
+
+        <div id="viewer" class="hidden">
+          <div class="vbar">
+            <button class="btn ghost sm" id="pgPrev" title="이전 쪽">‹</button>
+            <span class="pgpos">
+              <input id="pgNum" type="text" inputmode="numeric" value="1" />
+              / <b id="pgTotal">0</b>
+            </span>
+            <button class="btn ghost sm" id="pgNext" title="다음 쪽">›</button>
+            <span class="hits" id="pageHits"></span>
+            <span class="spacer"></span>
+            <span class="mnav hidden" id="matchNav">
+              <button class="btn ghost sm" id="mPrev">‹ 이전 결과</button>
+              <span class="pos" id="mPos"></span>
+              <button class="btn ghost sm" id="mNext">다음 결과 ›</button>
+            </span>
+          </div>
+
+          <div class="vbody">
+            <div class="snipcard hidden" id="snipCard"></div>
+
+            <div class="explain">
+              <div class="head">
+                <span class="t" id="explainTitle">해설</span>
+                <span class="spacer" style="flex:1"></span>
+                <button class="btn" id="explainBtn" disabled>이 문맥에서 무슨 뜻일까?</button>
+              </div>
+              <div class="body dim" id="explainBody">읽다가 막힌 문장을 드래그하면 그 자리에서 구절 해설을 받을 수 있어요. 검색 결과를 누르면 그 단어의 뜻을 풀어드려요.</div>
+            </div>
+
+            <div class="pagewrap" id="pageWrap">
+              <div class="pageinner" id="pageInner">
+                <canvas id="pageCanvas"></canvas>
+                <div class="hllayer" id="hlLayer"></div>
+                <div class="textlayer" id="textLayer"></div>
+                <button class="btn selbtn hidden" id="selBtn">이 구절 해설</button>
+              </div>
+            </div>
+            <div class="pagecap" id="pageCap"></div>
+            <div class="hint">문장을 드래그하면 해설 버튼이 나타납니다 · 텍스트 선택·복사도 됩니다</div>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -247,12 +346,17 @@ const state = {
   matches:[],          // current search matches
   active:-1,           // active match index
   fileName:"",
+  viewPage:0,          // 지금 화면에 렌더된 쪽
+  needle:"",           // 하이라이트할 검색어
+  caseSens:false,
+  selectedText:"",     // 드래그로 집은 구절
+  rendering:false,     // 렌더 중복 방지
 };
 
 const CONTEXT = 60;    // chars of context on each side
 
 /* ============================================================
-   뜻 풀이(AI) 연결 설정
+   해설(AI) 연결 설정
    ------------------------------------------------------------
    같은 Vercel 프로젝트 안의 서버 함수(/api/explain)를 부릅니다.
    같은 출처(same-origin)라서 CORS 문제가 없고,
@@ -317,13 +421,12 @@ async function loadPdf(file){
 
 function resetForNewBook(name){
   state.pages=[]; state.matches=[]; state.active=-1; state.pdf=null;
-  state.fileName=name;
+  state.fileName=name; state.viewPage=0; state.needle=""; state.selectedText="";
   $("#fileName").textContent = name;
   $("#q").value="";
   $("#hitCount").textContent="0";
   $("#pageSpan").textContent="·";
-  $("#previewContent").classList.add("hidden");
-  $("#previewContent").innerHTML="";
+  $("#viewer").classList.add("hidden");
   $("#previewPlaceholder").classList.remove("hidden");
 }
 
@@ -333,6 +436,12 @@ function onBookReady(total){
   q.disabled = false;
   q.focus();
   $("#pageSpan").textContent = `${total.toLocaleString()}쪽 색인 완료`;
+
+  // 검색을 하지 않아도 곧바로 읽을 수 있어야 한다 — 평범한 PDF 뷰어로 시작.
+  $("#previewPlaceholder").classList.add("hidden");
+  $("#viewer").classList.remove("hidden");
+  $("#pgTotal").textContent = total.toLocaleString();
+  showPage(1);
 }
 
 function showEmptyMessage(msg){
@@ -352,9 +461,20 @@ function runSearch(){
   const caseSens = $("#caseSens").checked;
   const results = $("#results");
   results.querySelectorAll(".entry").forEach(n=>n.remove());
+  results.querySelectorAll(".moreNote").forEach(n=>n.remove());
   state.matches=[]; state.active=-1;
+  state.needle = raw;
+  state.caseSens = caseSens;
 
-  if(!raw){ $("#hitCount").textContent="0"; return; }
+  if(!raw){
+    $("#hitCount").textContent="0";
+    $("#pageSpan").textContent = state.pdf ? `${state.pdf.numPages.toLocaleString()}쪽 색인 완료` : "·";
+    // 검색어가 없으면 하이라이트도 결과 카드도 없다 = 그냥 뷰어.
+    $("#snipCard").classList.add("hidden");
+    $("#matchNav").classList.add("hidden");
+    paintHighlights();
+    return;
+  }
 
   const needle = caseSens ? raw : raw.toLowerCase();
   const pageSet = new Set();
@@ -402,55 +522,233 @@ function runSearch(){
   results.appendChild(frag);
   if(cap<matches.length){
     const more=document.createElement("div");
-    more.className="empty";
+    more.className="empty moreNote";
     more.style.padding="10px";
     more.innerHTML=`<p style="font-size:12px">앞쪽 ${cap.toLocaleString()}개만 표시했어요. 단어를 더 좁혀 보세요.</p>`;
     results.appendChild(more);
   }
+
+  updateMatchNav();
+  // 지금 보고 있는 쪽에도 검색어가 있으면 바로 표시해 준다.
+  paintHighlights();
 }
 
 function esc(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
-/* ---------------- preview ---------------- */
+/* ============================================================
+   페이지 렌더 — canvas + 하이라이트 + 텍스트 레이어
+   ------------------------------------------------------------
+   canvas 만 그리면 페이지에 "글자"가 없어서 드래그 선택도,
+   검색어 위치 표시도 불가능하다. 그래서 canvas 위에 투명한
+   실제 텍스트를 정확한 위치로 겹쳐 깐다.
+   ============================================================ */
+
+// pdf.js 의 Util.transform 과 같은 2x3 행렬 곱.
+// 라이브러리 내부 API에 의존하지 않으려고 직접 둔다.
+function mulTransform(m1, m2){
+  return [
+    m1[0]*m2[0] + m1[2]*m2[1],
+    m1[1]*m2[0] + m1[3]*m2[1],
+    m1[0]*m2[2] + m1[2]*m2[3],
+    m1[1]*m2[2] + m1[3]*m2[3],
+    m1[0]*m2[4] + m1[2]*m2[5] + m1[4],
+    m1[1]*m2[4] + m1[3]*m2[5] + m1[5],
+  ];
+}
+
+function buildTextLayer(layer, textContent, viewport){
+  layer.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  const pending = [];
+
+  for(const item of textContent.items){
+    if(!item.str || !item.str.trim()) continue;
+    const tx = mulTransform(viewport.transform, item.transform);
+    const fontHeight = Math.hypot(tx[2], tx[3]);
+    if(!fontHeight) continue;
+
+    const span = document.createElement("span");
+    span.textContent = item.str;
+    span.style.left = tx[4] + "px";
+    span.style.top  = (tx[5] - fontHeight) + "px";
+    span.style.fontSize = fontHeight + "px";
+    span.style.fontFamily = "sans-serif";
+    frag.appendChild(span);
+    pending.push([span, (item.width || 0) * viewport.scale]);
+  }
+  layer.appendChild(frag);
+
+  // 글리프 폭에 맞춰 가로로 늘린다. 이 보정을 빼면 투명 글자와
+  // 그려진 글자가 어긋나서 드래그 선택 범위가 엉뚱해진다.
+  for(const [span, want] of pending){
+    const have = span.offsetWidth;
+    if(have > 0 && want > 0) span.style.transform = `scaleX(${want/have})`;
+  }
+}
+
+// focusHit: 이 쪽에서 몇 번째 일치를 "현재 항목"으로 강조할지 (없으면 -1)
+function paintHighlights(focusHit = -1){
+  const hl = $("#hlLayer");
+  const layer = $("#textLayer");
+  if(!hl || !layer) return;
+  hl.innerHTML = "";
+  $("#pageHits").textContent = "";
+  if(!state.needle) return;
+
+  const base = layer.getBoundingClientRect();
+  const nee = state.caseSens ? state.needle : state.needle.toLowerCase();
+  let hitIdx = 0, focusEl = null;
+
+  for(const span of layer.children){
+    const text = span.textContent;
+    const hay = state.caseSens ? text : text.toLowerCase();
+    const node = span.firstChild;
+    if(!node) continue;
+    let from = 0, idx;
+    while((idx = hay.indexOf(nee, from)) !== -1){
+      const range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + nee.length);
+      for(const rect of range.getClientRects()){
+        if(!rect.width || !rect.height) continue;
+        const d = document.createElement("div");
+        d.className = "hl";
+        d.style.left   = (rect.left - base.left) + "px";
+        d.style.top    = (rect.top  - base.top ) + "px";
+        d.style.width  = rect.width  + "px";
+        d.style.height = rect.height + "px";
+        if(hitIdx === focusHit){ d.classList.add("current"); focusEl = d; }
+        hl.appendChild(d);
+      }
+      hitIdx++;
+      from = idx + nee.length;
+    }
+  }
+
+  $("#pageHits").textContent = hitIdx ? `이 쪽에 ${hitIdx}곳` : "이 쪽에는 없음";
+  if(focusEl) focusEl.scrollIntoView({block:"center", behavior:"smooth"});
+}
+
+async function showPage(n, opts={}){
+  if(!state.pdf || state.rendering) return;
+  n = Math.min(Math.max(1, n|0), state.pdf.numPages);
+  state.rendering = true;
+  try{
+    state.viewPage = n;
+    $("#pgNum").value = n;
+    $("#pgPrev").disabled = n<=1;
+    $("#pgNext").disabled = n>=state.pdf.numPages;
+    $("#pageCap").textContent = `${n}쪽 · ${state.fileName}`;
+    hideSelButton();
+
+    const page = await state.pdf.getPage(n);
+    const wrapW = $("#pageWrap").clientWidth || 700;
+    const baseVp = page.getViewport({scale:1});
+    const scale = Math.min(2, wrapW / baseVp.width);
+    const viewport = page.getViewport({scale});
+
+    const inner = $("#pageInner");
+    const canvas = $("#pageCanvas");
+    const dpr = Math.min(window.devicePixelRatio||1, 2);
+    canvas.width  = Math.floor(viewport.width  * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width  = viewport.width  + "px";
+    canvas.style.height = viewport.height + "px";
+    // 겹치는 세 층의 기준 크기를 픽셀로 못박는다
+    inner.style.width  = viewport.width  + "px";
+    inner.style.height = viewport.height + "px";
+
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    await page.render({canvasContext:ctx, viewport}).promise;
+
+    const tc = await page.getTextContent();
+    buildTextLayer($("#textLayer"), tc, viewport);
+    page.cleanup();
+
+    paintHighlights(opts.focusHit ?? -1);
+  }catch(err){
+    console.error("[페이지 렌더 실패]", err);
+  }finally{
+    state.rendering = false;
+  }
+}
+
+/* ---------------- 페이지 이동 ---------------- */
+$("#pgPrev").onclick = ()=>showPage(state.viewPage-1);
+$("#pgNext").onclick = ()=>showPage(state.viewPage+1);
+$("#pgNum").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    const v = parseInt($("#pgNum").value,10);
+    if(Number.isFinite(v)) showPage(v);
+    else $("#pgNum").value = state.viewPage;
+  }
+});
+$("#pgNum").addEventListener("blur",()=>{ $("#pgNum").value = state.viewPage; });
+
+// 창 크기가 바뀌면 세 층의 좌표가 어긋나므로 다시 그린다
+let resizeT;
+window.addEventListener("resize",()=>{
+  if(!state.pdf || !state.viewPage) return;
+  clearTimeout(resizeT);
+  resizeT = setTimeout(()=>{
+    const hit = currentFocusHit();
+    showPage(state.viewPage, {focusHit:hit});
+  }, 200);
+});
+
+function currentFocusHit(){
+  if(state.active < 0) return -1;
+  const m = state.matches[state.active];
+  if(!m || m.page !== state.viewPage) return -1;
+  let k = 0;
+  for(let j=0;j<state.active;j++) if(state.matches[j].page===m.page) k++;
+  return k;
+}
+
+/* ---------------- 검색 결과 선택 ---------------- */
+function updateMatchNav(){
+  const nav = $("#matchNav");
+  if(!state.matches.length){ nav.classList.add("hidden"); return; }
+  nav.classList.remove("hidden");
+  const i = state.active;
+  $("#mPos").textContent = i>=0
+    ? `${(i+1).toLocaleString()} / ${state.matches.length.toLocaleString()}`
+    : `${state.matches.length.toLocaleString()}곳`;
+  $("#mPrev").disabled = i<=0;
+  $("#mNext").disabled = i>=state.matches.length-1;
+}
+$("#mPrev").onclick = ()=>step(-1);
+$("#mNext").onclick = ()=>step(1);
+
 async function selectMatch(i, el){
   state.active = i;
   document.querySelectorAll(".entry.active").forEach(n=>n.classList.remove("active"));
   if(el) el.classList.add("active");
   const m = state.matches[i];
+  if(!m) return;
 
-  $("#previewPlaceholder").classList.add("hidden");
-  const pc = $("#previewContent");
-  pc.classList.remove("hidden");
-  pc.innerHTML = `
-    <div class="nav">
-      <button class="btn ghost" id="prevBtn">‹ 이전</button>
-      <span class="pos">${(i+1).toLocaleString()} / ${state.matches.length.toLocaleString()}</span>
-      <span class="spacer"></span>
-      <button class="btn ghost" id="nextBtn">다음 ›</button>
-    </div>
-    <div class="snipcard">
-      <div class="ref">p. ${m.page} 문맥</div>
-      <div class="big">${esc(m.before)}<mark class="mark">${esc(m.match)}</mark>${esc(m.after)}</div>
-    </div>
-    <div class="explain">
-      <div class="head">
-        <span class="t">뜻 풀이</span>
-        <span class="spacer" style="flex:1"></span>
-        <button class="btn" id="explainBtn">이 문맥에서 무슨 뜻일까?</button>
-      </div>
-      <div class="body dim" id="explainBody">버튼을 누르면 이 문맥에 맞춰 단어의 뜻을 풀어드려요.</div>
-    </div>
-    <div class="pagewrap"><canvas id="pageCanvas"></canvas></div>
-    <div class="pagecap">${m.page}쪽 · ${esc(state.fileName)}</div>
-  `;
-  pc.querySelector("#prevBtn").disabled = i<=0;
-  pc.querySelector("#nextBtn").disabled = i>=state.matches.length-1;
-  pc.querySelector("#prevBtn").onclick = ()=>step(-1);
-  pc.querySelector("#nextBtn").onclick = ()=>step(1);
-  pc.querySelector("#explainBtn").onclick = ()=>explainWord(m);
-  $("#preview").scrollTop = 0;
+  const card = $("#snipCard");
+  card.classList.remove("hidden");
+  card.innerHTML =
+    `<div class="ref">p. ${m.page} 문맥</div>`+
+    `<div class="big">${esc(m.before)}<mark class="mark">${esc(m.match)}</mark>${esc(m.after)}</div>`;
 
-  renderPage(m.page);
+  // 단어 모드로 전환
+  $("#explainTitle").textContent = "뜻 풀이";
+  const btn = $("#explainBtn");
+  btn.disabled = false;
+  btn.textContent = "이 문맥에서 무슨 뜻일까?";
+  btn.onclick = ()=>explainWord(m);
+  $("#explainBody").className = "body dim";
+  $("#explainBody").textContent = `"${m.match}" — 버튼을 누르면 이 문맥에 맞춰 뜻을 풀어드려요.`;
+
+  updateMatchNav();
+
+  // 이 쪽에서 몇 번째 일치인지 세어 그 자리를 강조한다
+  let k = 0;
+  for(let j=0;j<i;j++) if(state.matches[j].page===m.page) k++;
+  await showPage(m.page, {focusHit:k});
 }
 
 function step(d){
@@ -461,30 +759,62 @@ function step(d){
   if(el) el.scrollIntoView({block:"nearest"});
 }
 
-async function renderPage(pageNum){
-  try{
-    const page = await state.pdf.getPage(pageNum);
-    const canvas = $("#pageCanvas");
-    if(!canvas) return;
-    const wrapW = canvas.parentElement.clientWidth || 700;
-    const base = page.getViewport({scale:1});
-    const scale = Math.min(2, wrapW / base.width);
-    const viewport = page.getViewport({scale});
-    const dpr = Math.min(window.devicePixelRatio||1, 2);
-    canvas.width = Math.floor(viewport.width*dpr);
-    canvas.height = Math.floor(viewport.height*dpr);
-    canvas.style.width = viewport.width+"px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    await page.render({canvasContext:ctx, viewport}).promise;
-    page.cleanup();
-  }catch(err){ console.error(err); }
+/* ============================================================
+   드래그 선택 → 구절 해설
+   ------------------------------------------------------------
+   읽다 막힌 문장을 그 자리에서 집어넣는 흐름. 검색어를 미리
+   알아야만 쓸 수 있던 제약을 없애는 부분이다.
+   ============================================================ */
+function hideSelButton(){
+  $("#selBtn").classList.add("hidden");
+  state.selectedText = "";
 }
 
-/* ---------------- AI 뜻 풀이 ---------------- */
+document.addEventListener("mouseup", ()=>{
+  // 버튼 자체를 누른 경우엔 선택을 지우지 않는다
+  setTimeout(updateSelButton, 0);
+});
+document.addEventListener("selectionchange", ()=>{
+  const sel = window.getSelection();
+  if(!sel || !String(sel).trim()) hideSelButton();
+});
+
+function updateSelButton(){
+  const layer = $("#textLayer");
+  const btn = $("#selBtn");
+  if(!layer || layer.children.length===0) return;
+
+  const sel = window.getSelection();
+  const text = sel ? sel.toString().trim() : "";
+  if(!text || text.length < 2 || !sel.rangeCount){ hideSelButton(); return; }
+
+  const range = sel.getRangeAt(0);
+  const anchor = range.commonAncestorContainer;
+  const anchorEl = anchor.nodeType === 1 ? anchor : anchor.parentNode;
+  if(!layer.contains(anchorEl)){ hideSelButton(); return; }
+
+  const r = range.getBoundingClientRect();
+  if(!r.width && !r.height){ hideSelButton(); return; }
+  const base = $("#pageInner").getBoundingClientRect();
+
+  btn.style.left = (r.left - base.left + r.width/2) + "px";
+  btn.style.top  = Math.max(2, r.top - base.top - 42) + "px";
+  btn.classList.remove("hidden");
+  // PDF 줄바꿈으로 끊긴 공백을 정리해 보낸다
+  state.selectedText = text.replace(/\s+/g," ").trim();
+}
+
+$("#selBtn").onclick = ()=>{
+  const passage = state.selectedText;
+  if(!passage) return;
+  $("#selBtn").classList.add("hidden");
+  explainPassage(passage);
+};
+
+/* ---------------- AI 해설 ---------------- */
 // 서버가 { error: "..." } 로 이유를 알려준 경우 그 문장을 꺼낸다.
 // 상태코드만 보고 원인을 단정하면 안 된다 — 예를 들어 404는
-// "함수가 없다"일 수도 있고 Gemini가 "그런 모델 없다"고 한 것일 수도 있다.
+// "함수가 없다"일 수도 있고 모델 쪽에서 온 것일 수도 있다.
 function serverMessage(bodyText){
   if(!bodyText) return "";
   try{ return String(JSON.parse(bodyText).error || "").trim(); }
@@ -511,22 +841,19 @@ function diagnose(err, status, bodyText){
     + (local ? " 지금 이 페이지는 file:// 로 열려 있습니다. /api/explain 은 배포된 주소(또는 vercel dev)에서만 동작합니다." : " 네트워크 상태를 확인해 주세요.");
 }
 
-async function explainWord(m){
+async function callExplain(payload, loadingLabel){
   const body = $("#explainBody");
   const btn = $("#explainBtn");
-  body.classList.remove("dim");
-  body.innerHTML = `<span style="display:inline-flex;gap:8px;align-items:center;color:var(--muted)"><span class="spinner"></span> 뜻을 풀고 있어요…</span>`;
+  body.className = "body";
+  body.innerHTML = `<span style="display:inline-flex;gap:8px;align-items:center;color:var(--muted)"><span class="spinner"></span> ${loadingLabel}</span>`;
   btn.disabled = true;
-
-  const context = `${m.before}${m.match}${m.after}`.replace(/…/g,"");
-  const word = m.match;
 
   let status = 0, bodyText = "";
   try{
     const res = await fetch(AI.endpoint,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ word, context })
+      body:JSON.stringify(payload)
     });
     status = res.status;
     if(!res.ok){
@@ -536,13 +863,39 @@ async function explainWord(m){
     const data = await res.json();
     body.textContent = (data.text || "").trim() || "설명이 비어 있었어요. 다시 시도해 주세요.";
   }catch(err){
-    console.error("[뜻 풀이 실패]", {status, bodyText, err});
-    body.classList.add("dim");
-    body.textContent = "뜻 풀이를 불러오지 못했어요.\n\n원인: " + diagnose(err, status, bodyText)
-      + "\n\n(검색 기능은 정상 동작합니다.)";
+    console.error("[해설 실패]", {status, bodyText, err});
+    body.className = "body dim";
+    body.textContent = "해설을 불러오지 못했어요.\n\n원인: " + diagnose(err, status, bodyText)
+      + "\n\n(검색과 읽기 기능은 정상 동작합니다.)";
   }finally{
     btn.disabled = false;
   }
+}
+
+function explainWord(m){
+  const context = `${m.before}${m.match}${m.after}`.replace(/…/g,"");
+  $("#explainTitle").textContent = "뜻 풀이";
+  callExplain({ word:m.match, context }, "뜻을 풀고 있어요…");
+}
+
+function explainPassage(passage){
+  // 구절 자체 말고 그 쪽 전문을 문맥으로 함께 보낸다 —
+  // 논지를 짚으려면 앞뒤가 필요하다.
+  const context = state.pages[state.viewPage-1] || passage;
+  $("#explainTitle").textContent = "구절 해설";
+  const btn = $("#explainBtn");
+  btn.disabled = false;
+  btn.textContent = "이 구절 다시 해설";
+  btn.onclick = ()=>explainPassage(passage);
+
+  const card = $("#snipCard");
+  card.classList.remove("hidden");
+  card.innerHTML =
+    `<div class="ref">p. ${state.viewPage} 선택한 구절</div>`+
+    `<div class="big">${esc(passage.length>600 ? passage.slice(0,600)+"…" : passage)}</div>`;
+
+  callExplain({ mode:"passage", passage, context }, "구절을 해설하고 있어요…");
+  $("#preview").scrollTo({top:0, behavior:"smooth"});
 }
 </script>
 </body>
