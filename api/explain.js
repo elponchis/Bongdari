@@ -44,12 +44,13 @@ function cleanAnswer(raw) {
   t = t.replace(/```[a-zA-Z]*\n?/g, "");
   // 프롬프트 머리말을 복창하는 경우
   t = t.replace(/^\s*\[?(Answer|Question|Passage|답변|지문)\]?\s*:?\s*$/gim, "");
+  const light = t.trim();
 
   // 답을 쓴 뒤 영어로 자기 답을 재검토하며 계속 떠드는 경우가 있다.
   // 답변은 한국어여야 하므로, 한국어 줄만 모으고 한글이 없는 줄이
   // 나오면 군더더기가 시작된 것으로 보고 끊는다.
   const kept = [];
-  for (const line of t.split("\n")) {
+  for (const line of light.split("\n")) {
     const s = line.trim();
     if (!s) {
       if (kept.length) break; // 답 이후의 빈 줄 = 여기서 끝
@@ -61,7 +62,13 @@ function cleanAnswer(raw) {
     }
     kept.push(s);
   }
-  return kept.join("\n").trim();
+  const strict = kept.join("\n").trim();
+
+  // 강한 정리로 전부 사라지는 경우가 있다 — 모델이 규칙을 어기고
+  // 영어로만 답하면 한글이 한 줄도 없어서 빈 문자열이 된다.
+  // 그때는 아무것도 안 보여주는 대신 가벼운 정리 결과라도 내보낸다.
+  // (영어로 답하고 있다는 사실 자체가 화면에 드러나야 원인을 안다)
+  return strict || light;
 }
 
 export default async function handler(req, res) {
