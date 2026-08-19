@@ -21,7 +21,17 @@
 const MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
 const MAX_CONTEXT = 1200;  // 문맥 길이 상한 (글자)
-const MAX_PASSAGE = 2000;  // 드래그로 집은 구절 길이 상한
+
+// 드래그로 집은 구절 길이 상한. 2000 이었을 때는 책 한 페이지를 전체
+// 선택하면(보통 2,000~4,000자) 뒷부분이 잘려 나갔는데 아무 알림이 없어서,
+// 사용자는 페이지 전체를 해설받은 줄 알았다. 6000 으로 올려 웬만한 한
+// 페이지는 통째로 들어가게 하고, 그래도 잘리면 응답에 알린다.
+// 입력 토큰은 출력보다 싸서(뉴런 9,091 vs 27,273 per 1M) 부담이 작다.
+const MAX_PASSAGE = 6000;
+
+// 구절이 이보다 길면 쪽 전문을 따로 붙이지 않는다 — 이미 그 쪽을 거의
+// 다 담고 있어서 같은 내용을 두 번 보내는 셈이 된다.
+const CONTEXT_SKIP_OVER = 1500;
 const MAX_TOKENS = 700;    // 안 주면 기본값이 낮아 답이 잘린다
 // 구절 모드는 세 항목을 쓰는데다, 이 모델이 답 전에 사고 과정을 쓰는
 // 경우가 있어 그 몫까지 넉넉히 줘야 한다. 900 으로는 사고만 하다
@@ -156,18 +166,29 @@ export default async function handler(req, res) {
       error: isPassage ? "passage가 필요합니다." : "word가 필요합니다.",
     });
   }
-  if (!isDict && !context) {
+  // 문맥이 반드시 필요한 것은 단어 모드뿐이다. 사전 모드는 애초에 없고,
+  // 구절 모드는 긴 구절이면 문맥을 붙이지 않으므로 없어도 된다.
+  if (!isDict && !isPassage && !context) {
     return res.status(400).json({ error: "context가 필요합니다." });
   }
+
+  // 구절이 상한을 넘겨 잘렸는지 알아둔다. 조용히 버리면 사용자는 전체를
+  // 해설받은 줄 안다 — 응답에 실어 알려준다.
+  const rawPassage = String(passage || "");
+  const usedPassage = rawPassage.slice(0, MAX_PASSAGE);
+  const passageTruncated = isPassage && rawPassage.length > MAX_PASSAGE;
+
+  // 긴 구절에는 쪽 전문을 덧붙이지 않는다 (같은 내용 중복 + 입력만 커진다)
+  const passageContext =
+    usedPassage.length > CONTEXT_SKIP_OVER
+      ? ""
+      : `\n\n이 구절이 놓인 앞뒤 문맥(참고용):\n${String(context).slice(0, MAX_CONTEXT)}`;
 
   const userPrompt = isDict
     ? `단어 또는 표현: "${String(word).slice(0, 120)}"`
     : isPassage
     ? `구절:
-${String(passage).slice(0, MAX_PASSAGE)}
-
-이 구절이 놓인 앞뒤 문맥(참고용):
-${String(context).slice(0, MAX_CONTEXT)}`
+${usedPassage}${passageContext}`
     : `단어: "${String(word).slice(0, 80)}"
 
 지문:
@@ -244,7 +265,13 @@ ${String(context).slice(0, MAX_CONTEXT)}`;
       return res.status(200).json({ text: raw.slice(0, 600) });
     }
 
-    return res.status(200).json({ text });
+    // truncated 를 함께 보내 클라이언트가 "뒷부분은 빠졌다"고 알릴 수 있게 한다
+    return res.status(200).json({
+      text,
+      ...(passageTruncated
+        ? { truncated: { used: MAX_PASSAGE, total: rawPassage.length } }
+        : {}),
+    });
   } catch (err) {
     console.error(err);
     return res.status(502).json({ error: "업스트림 호출 실패: " + String(err) });

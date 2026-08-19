@@ -1074,6 +1074,19 @@ async function callExplain(payload, loadingLabel, saveMeta){
     const data = await res.json();
     const text = (data.text || "").trim();
     body.textContent = text || "설명이 비어 있었어요. 다시 시도해 주세요.";
+
+    // 서버가 구절을 잘라 썼다면 반드시 알린다. 조용히 넘기면 페이지
+    // 전체를 해설받은 줄 알게 된다.
+    if(data.truncated){
+      const t = data.truncated;
+      const note = document.createElement("div");
+      note.style.cssText = "margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--ref)";
+      note.textContent =
+        `※ 고른 구절이 ${t.total.toLocaleString()}자라서 앞 ${t.used.toLocaleString()}자만 해설했어요. ` +
+        `뒷부분은 따로 골라 다시 눌러 주세요.`;
+      body.appendChild(note);
+    }
+
     if(text && saveMeta){
       state.lastExplain = { ...saveMeta, note:text };
       $("#saveBtn").classList.remove("hidden");
@@ -1108,7 +1121,7 @@ function explainPassage(passage){
   const card = $("#snipCard");
   card.classList.remove("hidden");
   card.innerHTML =
-    `<div class="ref">p. ${state.viewPage} 선택한 구절</div>`+
+    `<div class="ref">p. ${state.viewPage} 선택한 구절 · ${passage.length.toLocaleString()}자</div>`+
     `<div class="big">${esc(passage.length>600 ? passage.slice(0,600)+"…" : passage)}</div>`;
 
   callExplain({ mode:"passage", passage, context },
