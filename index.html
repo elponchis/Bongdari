@@ -482,16 +482,28 @@ async function renderPage(pageNum){
 }
 
 /* ---------------- AI 뜻 풀이 ---------------- */
+// 서버가 { error: "..." } 로 이유를 알려준 경우 그 문장을 꺼낸다.
+// 상태코드만 보고 원인을 단정하면 안 된다 — 예를 들어 404는
+// "함수가 없다"일 수도 있고 Gemini가 "그런 모델 없다"고 한 것일 수도 있다.
+function serverMessage(bodyText){
+  if(!bodyText) return "";
+  try{ return String(JSON.parse(bodyText).error || "").trim(); }
+  catch{ return ""; }
+}
+
 function diagnose(err, status, bodyText){
   const local = location.protocol === "file:";
+  const msg = serverMessage(bodyText);
   if(status === 401 || status === 403)
-    return "인증이 거절됐어요(401/403). Vercel 프로젝트 환경변수 GEMINI_API_KEY가 비었거나 틀렸을 가능성이 큽니다.";
+    return "인증이 거절됐어요(401/403). " + (msg || "Vercel 프로젝트 환경변수 GEMINI_API_KEY가 비었거나 틀렸을 가능성이 큽니다.");
   if(status === 404)
-    return "/api/explain 을 찾지 못했어요(404). api/explain.js 파일이 프로젝트 루트의 api 폴더에 있는지 확인해 주세요.";
+    return msg
+      ? "서버가 404와 함께 이렇게 답했어요: " + msg
+      : "/api/explain 을 찾지 못했어요(404). api/explain.js 파일이 프로젝트 루트의 api 폴더에 있는지 확인해 주세요.";
   if(status === 429)
-    return "요청이 너무 잦아요(429). 30초쯤 뒤에 다시 눌러 주세요.";
+    return "요청이 너무 잦아요(429). " + (msg || "30초쯤 뒤에 다시 눌러 주세요.");
   if(status && status >= 500)
-    return "서버 쪽 오류예요(" + status + "). 잠시 후 다시 시도해 주세요.";
+    return "서버 쪽 오류예요(" + status + "). " + (msg || "잠시 후 다시 시도해 주세요.");
   if(status)
     return "요청이 거절됐어요(" + status + "). " + (bodyText ? bodyText.slice(0,300) : "");
   // status 없음 = fetch 자체가 실패 = CORS / 네트워크 / 차단
