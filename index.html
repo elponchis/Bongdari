@@ -224,7 +224,6 @@
   .textlayer{
     position:absolute;inset:0;overflow:hidden;z-index:2;
     line-height:1;cursor:text;
-    /* span 사이에 끼운 공백 문자도 보이지 않게 컨테이너째로 투명하게 둔다 */
     color:transparent;
   }
   .textlayer span{
@@ -752,17 +751,13 @@ function buildTextLayer(layer, textContent, viewport){
     span.style.fontSize = fontHeight + "px";
     span.style.fontFamily = "sans-serif";
 
-    // span 사이에 실제 공백 문자를 끼운다.
-    //
-    // PDF 는 단어·조각마다 텍스트 항목이 나뉘는데, span 을 그냥 이어
-    // 붙이면 그 사이에 공백이 없다. 브라우저가 선택·복사할 때는 DOM 에
-    // 있는 글자만 이어 붙이므로 "They" + "acknowledge" → "Theyacknowledge",
-    // "from" + "experience" → "fromexperience" 처럼 달라붙는다.
-    // 전치사가 앞뒤 단어에 붙어 보인 게 이것이다.
-    //
-    // 이 공백은 절대 배치된 span 들과 달리 일반 흐름에 놓이지만, 공백
-    // 문자라 눈에 보이지 않고 컨테이너가 overflow:hidden 이라 안전하다.
-    if(pending.length) frag.appendChild(document.createTextNode(" "));
+    // span 사이에 공백 텍스트 노드를 끼우는 방법은 쓰지 않는다 — 한 번
+    // 넣었다가 아무 효과가 없어 뺐다. 절대 배치된 span 들 사이에 놓인
+    // 공백은 줄 상자에서 눌려 사라지는 공백이라, 브라우저가 선택·복사
+    // 문자열을 만들 때 세지 않는다. 그래서 "They"+"acknowledge" 가
+    // "Theyacknowledge" 로 붙는 증상이 그대로 남았다.
+    // 대신 선택한 글자를 span 들의 화면 배치에서 되살린다.
+    //   → rangeTextFromLayer()
     frag.appendChild(span);
     pending.push([span, (item.width || 0) * viewport.scale]);
   }
@@ -1002,6 +997,57 @@ document.addEventListener("selectionchange", ()=>{
   if(!sel || !String(sel).trim()) hideSelButton();
 });
 
+/* 선택한 범위의 글자를 span 배치에서 되살린다.
+   ------------------------------------------------------------
+   window.getSelection().toString() 을 그대로 쓰면 안 되는 이유:
+   PDF 는 단어·조각마다 텍스트 항목이 나뉘고 우리는 항목마다 span 하나를
+   절대 좌표에 놓는다. 그 사이에는 공백 글자가 없으므로 브라우저가 만드는
+   선택 문자열은 "They"+"acknowledge" → "Theyacknowledge" 처럼 붙는다.
+   화면에서는 두 단어 사이가 멀쩡히 떨어져 보이는데 집어 온 글자만 붙는다.
+
+   그래서 눈에 보이는 대로 읽는다. 선택에 걸린 span 을 DOM 순서대로 돌면서
+   실제 화면 사각형을 보고, 앞 조각의 오른쪽 끝과 다음 조각의 왼쪽 사이가
+   벌어져 있으면 공백을, 줄이 바뀌었으면 줄바꿈을 넣는다.
+   붙여 쓴 조각(한 단어가 둘로 쪼개진 경우)은 간격이 거의 0 이라 그대로 붙는다. */
+function rangeTextFromLayer(layer, range){
+  const parts = [];
+  for(const span of layer.children){
+    const node = span.firstChild;
+    if(!node || node.nodeType !== 3 || !node.length) continue;
+
+    // comparePoint: 점이 선택보다 앞이면 -1, 안이면 0, 뒤면 1
+    let s, e;
+    try{
+      if(range.comparePoint(node, node.length) < 0) continue;  // 선택 시작 앞
+      if(range.comparePoint(node, 0) > 0) break;               // 선택 끝 뒤 (이후 span 도 마찬가지)
+      s = range.comparePoint(node, 0) < 0 ? range.startOffset : 0;
+      e = range.comparePoint(node, node.length) > 0 ? range.endOffset : node.length;
+    }catch(_){ continue; }
+
+    const str = node.data.slice(s, e);
+    if(!str) continue;
+    parts.push({ str, rect: span.getBoundingClientRect() });
+  }
+
+  let out = "";
+  for(let i=0; i<parts.length; i++){
+    const { str, rect } = parts[i];
+    if(i){
+      const prev = parts[i-1].rect;
+      const em = Math.min(prev.height, rect.height) || rect.height;
+      // 줄이 바뀌었나 — 글자 높이의 절반 넘게 위아래로 벗어났으면 새 줄
+      const newLine = Math.abs(rect.top - prev.top) > em * 0.5;
+      // 같은 줄이면 사이가 얼마나 벌어졌나. 한 단어가 쪼개진 자리는 거의 0,
+      // 진짜 띄어쓰기는 보통 0.25em 쯤이라 그 사이에서 끊는다.
+      const gap = rect.left - prev.right;
+      if(newLine)                       { if(!/\s$/.test(out)) out += "\n"; }
+      else if(gap > em * 0.15)          { if(!/\s$/.test(out) && !/^\s/.test(str)) out += " "; }
+    }
+    out += str;
+  }
+  return out;
+}
+
 function updateSelButton(){
   const layer = $("#textLayer");
   const btn = $("#selBtn");
@@ -1023,9 +1069,27 @@ function updateSelButton(){
   btn.style.left = (r.left - base.left + r.width/2) + "px";
   btn.style.top  = Math.max(2, r.top - base.top - 42) + "px";
   btn.classList.remove("hidden");
-  // PDF 줄바꿈으로 끊긴 공백을 정리해 보낸다
-  state.selectedText = text.replace(/\s+/g," ").trim();
+  // 선택 문자열은 브라우저 것을 쓰지 않고 화면 배치에서 되살린다.
+  // (되살리기가 빈손이면 브라우저 것으로 물러선다)
+  const picked = rangeTextFromLayer(layer, range).replace(/\s+/g," ").trim();
+  state.selectedText = picked || text.replace(/\s+/g," ").trim();
 }
+
+// 본문을 Ctrl+C 로 복사할 때도 같은 이유로 단어가 붙는다. 선택이 텍스트
+// 레이어 안이면 되살린 글자로 바꿔 넣는다.
+document.addEventListener("copy", (e)=>{
+  const layer = $("#textLayer");
+  const sel = window.getSelection();
+  if(!layer || !sel || !sel.rangeCount || !e.clipboardData) return;
+  const range = sel.getRangeAt(0);
+  const anchor = range.commonAncestorContainer;
+  const anchorEl = anchor.nodeType === 1 ? anchor : anchor.parentNode;
+  if(!layer.contains(anchorEl)) return;
+  const text = rangeTextFromLayer(layer, range);
+  if(!text.trim()) return;
+  e.clipboardData.setData("text/plain", text);
+  e.preventDefault();
+});
 
 $("#selBtn").onclick = ()=>{
   const passage = state.selectedText;
