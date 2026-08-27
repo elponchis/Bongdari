@@ -216,6 +216,11 @@
   }
   .explain .body.dim{color:var(--muted);font-style:italic}
 
+  /* 접으면 제목줄만 남는다. 카드가 따라다니는 만큼, 본문을 온전히 보고 싶을 때
+     치울 수단이 있어야 한다. 버튼은 남으므로 접은 채로 다시 해설을 부를 수 있다. */
+  .explain.folded .body{display:none}
+  .explain.folded .head{border-bottom:none}
+
   /* ---------- page render + text layer ---------- */
   .pagewrap{
     max-width:760px;margin:0 auto;background:#fff;border:1px solid var(--line);
@@ -461,6 +466,8 @@
                 <span class="spacer" style="flex:1"></span>
                 <button class="btn ghost sm hidden" id="saveBtn">단어장에 넣기</button>
                 <button class="btn" id="explainBtn" disabled>이 문맥에서 무슨 뜻일까?</button>
+                <button class="btn ghost sm" id="explainFold" title="해설 접기"
+                        aria-expanded="true" aria-controls="explainBody">접기</button>
               </div>
               <div class="body dim" id="explainBody">읽다가 막힌 문장을 드래그하면 그 자리에서 구절 해설을 받을 수 있어요. 검색 결과를 누르면 그 단어의 뜻을 풀어드려요.</div>
             </div>
@@ -1198,6 +1205,24 @@ $("#selBtn").onclick = ()=>{
   explainPassage(passage);
 };
 
+/* 해설 접기 · 펴기.
+   따라다니는 카드에는 치울 방법이 함께 있어야 한다. 접어도 제목줄과 버튼은
+   남으므로 접힌 채로 다시 해설을 부를 수 있다. 그때는 스스로 펴진다 —
+   접힌 채로 두면 해설이 온 줄도 모르기 때문이다. */
+function explainCard(){ return document.querySelector(".explain"); }
+
+function setExplainFolded(folded){
+  const card = explainCard(), btn = $("#explainFold");
+  if(!card || !btn) return;
+  card.classList.toggle("folded", folded);
+  btn.textContent = folded ? "펴기" : "접기";
+  btn.title       = folded ? "해설 펴기" : "해설 접기";
+  btn.setAttribute("aria-expanded", String(!folded));
+}
+
+$("#explainFold").onclick = ()=>
+  setExplainFolded(!explainCard().classList.contains("folded"));
+
 /* ---------------- AI 해설 ---------------- */
 // 서버가 { error: "..." } 로 이유를 알려준 경우 그 문장을 꺼낸다.
 // 상태코드만 보고 원인을 단정하면 안 된다 — 예를 들어 404는
@@ -1315,6 +1340,7 @@ async function callExplain(payload, loadingLabel, saveMeta){
   body.className = "body";
   body.innerHTML = `<span style="display:inline-flex;gap:8px;align-items:center;color:var(--muted)"><span class="spinner"></span> ${loadingLabel}</span>`;
   body.scrollTop = 0;   // 카드 안이 스크롤돼 있었을 수 있다
+  setExplainFolded(false);   // 접혀 있었다면 펴 준다
   btn.disabled = true;
   // 이전 해설을 단어장에 넣는 사고를 막는다
   state.lastExplain = null;
@@ -1690,6 +1716,7 @@ function alertInline(msg){
   const tag = document.createElement("div");
   tag.style.cssText = "margin-top:10px;font-size:12px;color:var(--ref)";
   tag.textContent = "· " + msg;
+  setExplainFolded(false);   // 접혀 있으면 알림이 보이지 않는다
   body.appendChild(tag);
   body.scrollTop = body.scrollHeight;   // 카드 안이 잘려 있으면 안 보인다
   setTimeout(()=>tag.remove(), 4000);
