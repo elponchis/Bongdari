@@ -93,7 +93,9 @@
 
   /* ---------- layout ---------- */
   main{flex:1;display:grid;grid-template-columns:minmax(340px,440px) 1fr;min-height:0}
-  .panel{min-height:0;display:flex;flex-direction:column}
+  /* min-width:0 이 없으면 확대한 쪽이 격자 칸을 밀어 넓혀서, 뷰어 안이 아니라
+     창 전체가 옆으로 밀린다 — 그러면 왼쪽 서랍까지 화면 밖으로 나간다. */
+  .panel{min-height:0;min-width:0;display:flex;flex-direction:column}
   .panel.left{border-right:1px solid var(--line);background:var(--card-2)}
   .panel.right{background:var(--bg)}
 
@@ -179,6 +181,11 @@
   .vbar .spacer{flex:1}
   .vbar .mnav{display:flex;align-items:center;gap:8px}
   .vbar .mnav .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .vbar .zoom{display:flex;align-items:center;gap:4px}
+  .vbar .zoom .lvl{
+    font-family:var(--mono);font-size:11px;color:var(--muted);
+    min-width:50px;padding:5px 4px;
+  }
 
   .vbody{padding:18px 26px 0}
   .snipcard{
@@ -222,8 +229,18 @@
   .explain.folded .head{border-bottom:none}
 
   /* ---------- page render + text layer ---------- */
+  /* 확대하면 쪽이 뷰어보다 넓어진다. 이때 뷰어 전체가 옆으로 밀리면 툴바가 —
+     되돌아올 축소 버튼까지 — 화면 밖으로 나간다. 그래서 가로 스크롤은 종이를
+     감싼 이 상자 안에만 둔다. 툴바와 해설 카드는 제자리를 지킨다.
+     세로는 여전히 뷰어가 굴린다(상자 높이가 내용대로라 넘칠 일이 없다). */
+  .pagescroll{overflow-x:auto;overscroll-behavior-x:contain}
+  /* 넘치는 상자를 margin:auto 로 가운데 두면 왼쪽 여백이 음수가 되어 그쪽 글자에
+     닿을 수 없다. 그래서 필요한 만큼 넓어지는 상자를 한 겹 두고, 가운데 정렬은
+     그 안에서 한다. 좁을 때는 min-width 가 채워 주므로 예전처럼 가운데 온다. */
+  .pagearea{width:fit-content;min-width:100%}
+  /* 너비는 렌더할 때 확대 배율을 반영해 JS 가 픽셀로 지정한다 */
   .pagewrap{
-    max-width:760px;margin:0 auto;background:#fff;border:1px solid var(--line);
+    margin:0 auto;background:#fff;border:1px solid var(--line);
     border-radius:10px;box-shadow:0 6px 24px rgba(40,30,15,.12);overflow:hidden;
   }
   /* canvas · 하이라이트 · 텍스트를 정확히 겹쳐 쌓는 기준 상자.
@@ -448,6 +465,11 @@
               / <b id="pgTotal">0</b>
             </span>
             <button class="btn ghost sm" id="pgNext" title="다음 쪽">›</button>
+            <span class="zoom">
+              <button class="btn ghost sm" id="zoomOut" title="축소">−</button>
+              <button class="btn ghost sm lvl" id="zoomLvl" title="100%로 되돌리기">100%</button>
+              <button class="btn ghost sm" id="zoomIn" title="확대">+</button>
+            </span>
             <span class="hits" id="pageHits"></span>
             <span class="spacer"></span>
             <span class="mnav hidden" id="matchNav">
@@ -472,12 +494,16 @@
               <div class="body dim" id="explainBody">읽다가 막힌 문장을 드래그하면 그 자리에서 구절 해설을 받을 수 있어요. 검색 결과를 누르면 그 단어의 뜻을 풀어드려요.</div>
             </div>
 
-            <div class="pagewrap" id="pageWrap">
-              <div class="pageinner" id="pageInner">
-                <canvas id="pageCanvas"></canvas>
-                <div class="hllayer" id="hlLayer"></div>
-                <div class="textlayer" id="textLayer"></div>
-                <button class="btn selbtn hidden" id="selBtn">이 구절 해설</button>
+            <div class="pagescroll" id="pageScroll">
+              <div class="pagearea" id="pageArea">
+                <div class="pagewrap" id="pageWrap">
+                  <div class="pageinner" id="pageInner">
+                    <canvas id="pageCanvas"></canvas>
+                    <div class="hllayer" id="hlLayer"></div>
+                    <div class="textlayer" id="textLayer"></div>
+                    <button class="btn selbtn hidden" id="selBtn">이 구절 해설</button>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="pagecap" id="pageCap"></div>
@@ -507,6 +533,8 @@ const state = {
   caseSens:false,
   selectedText:"",     // 드래그로 집은 구절
   rendering:false,     // 렌더 중복 방지
+  zoom:1,              // 확대 배율 (1 = 뷰어 폭에 맞춤)
+  renderedZoom:1,      // 지금 화면에 그려져 있는 배율
   bookId:"",           // PDF 내용의 SHA-256 앞 16자 — 단어장을 묶는 키
   lastExplain:null,    // 방금 받은 해설 {kind, term, page, note} — 단어장 저장용
 };
@@ -948,15 +976,20 @@ async function showPage(n, opts={}){
     $("#pageCap").textContent = `${n}쪽 · ${state.fileName}`;
     hideSelButton();
 
+    const anchor = opts.keepAnchor ? pageAnchor() : null;
+
     const page = await state.pdf.getPage(n);
-    const wrapW = $("#pageWrap").clientWidth || 700;
     const baseVp = page.getViewport({scale:1});
-    const scale = Math.min(2, wrapW / baseVp.width);
-    const viewport = page.getViewport({scale});
+    const viewport = page.getViewport({scale: fitScale(baseVp) * state.zoom});
+    state.renderedZoom = state.zoom;
 
     const inner = $("#pageInner");
     const canvas = $("#pageCanvas");
-    const dpr = Math.min(window.devicePixelRatio||1, 2);
+    // 확대하면 캔버스 넓이가 배율의 제곱으로 늘어난다. 어느 선을 넘으면 브라우저가
+    // 그리기를 포기해 빈 쪽이 나온다. 그럴 바에는 선명도를 먼저 깎는다.
+    let dpr = Math.min(window.devicePixelRatio||1, 2);
+    const px = viewport.width * viewport.height * dpr * dpr;
+    if(px > 16e6) dpr = Math.max(1, dpr * Math.sqrt(16e6 / px));
     canvas.width  = Math.floor(viewport.width  * dpr);
     canvas.height = Math.floor(viewport.height * dpr);
     canvas.style.width  = viewport.width  + "px";
@@ -964,6 +997,8 @@ async function showPage(n, opts={}){
     // 겹치는 세 층의 기준 크기를 픽셀로 못박는다
     inner.style.width  = viewport.width  + "px";
     inner.style.height = viewport.height + "px";
+    // 종이 상자도 함께 넓힌다 (테두리 1px 씩은 border-box 라 안쪽을 먹는다)
+    $("#pageWrap").style.width = (Math.ceil(viewport.width) + 2) + "px";
 
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -974,10 +1009,13 @@ async function showPage(n, opts={}){
     page.cleanup();
 
     paintHighlights(opts.focusHit ?? -1);
+    restoreAnchor(anchor);
   }catch(err){
     console.error("[페이지 렌더 실패]", err);
   }finally{
     state.rendering = false;
+    // 그리는 동안 누른 확대는 무시됐다. 눈금과 화면이 어긋난 채 남지 않게 다시 그린다.
+    if(state.pdf && state.renderedZoom !== state.zoom) showPage(state.viewPage, {keepAnchor:true});
   }
 }
 
@@ -992,6 +1030,73 @@ $("#pgNum").addEventListener("keydown",e=>{
   }
 });
 $("#pgNum").addEventListener("blur",()=>{ $("#pgNum").value = state.viewPage; });
+
+/* ---------------- 확대 ----------------
+   100% 는 쪽을 뷰어 폭에 맞춘 크기다. 그보다 키우면 쪽이 뷰어보다 넓어져 가로로
+   밀어 가며 읽어야 하므로, 단계는 성기게 둔다. 줄이는 쪽은 없다 — 100% 보다
+   작게 만들 이유가 없고, 작아서 불편한 것이 애초의 문제였다. */
+const ZOOMS = [1, 1.25, 1.5, 2, 2.5, 3];
+const ZOOM_KEY = "bongdari.zoom";
+
+/* 확대하지 않았을 때 쪽이 차지하는 폭에서 나온 배율.
+   #pageWrap 을 재면 이미 확대된 폭이 되돌아와 배율이 눈덩이처럼 불어난다.
+   그래서 늘 확대와 무관한 뷰어 안쪽 폭을 잰다. */
+function fitScale(baseVp){
+  const vb = document.querySelector(".vbody");
+  let w = 700;
+  if(vb){
+    const cs = getComputedStyle(vb);
+    w = vb.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0) - 2;
+  }
+  return Math.min(2, Math.max(240, Math.min(760, w)) / baseVp.width);
+}
+
+/* 확대·축소해도 보던 자리를 놓치지 않게, 화면 한가운데가 쪽의 어디쯤이었는지
+   재 뒀다가 다시 그린 뒤 같은 자리를 가운데로 되돌린다. */
+function pageAnchor(){
+  const view = $("#preview"), pan = $("#pageScroll"), inner = $("#pageInner");
+  if(!view || !pan || !inner || !inner.offsetHeight) return null;
+  const v = view.getBoundingClientRect(), h = pan.getBoundingClientRect(),
+        p = inner.getBoundingClientRect();
+  return { y:(v.top  + v.height/2 - p.top ) / p.height,   // 세로는 뷰어가 굴린다
+           x:(h.left + h.width /2 - p.left) / p.width };  // 가로는 종이 상자가 굴린다
+}
+function restoreAnchor(a){
+  if(!a) return;
+  const view = $("#preview"), pan = $("#pageScroll"), inner = $("#pageInner");
+  const v = view.getBoundingClientRect(), h = pan.getBoundingClientRect(),
+        p = inner.getBoundingClientRect();
+  view.scrollTop += p.top  + a.y * p.height - (v.top  + v.height/2);
+  pan.scrollLeft += p.left + a.x * p.width  - (h.left + h.width /2);
+}
+
+function paintZoom(){
+  $("#zoomLvl").textContent = Math.round(state.zoom * 100) + "%";
+  $("#zoomOut").disabled = state.zoom <= ZOOMS[0];
+  $("#zoomIn").disabled  = state.zoom >= ZOOMS[ZOOMS.length - 1];
+}
+function setZoom(z){
+  if(z === state.zoom) return;
+  state.zoom = z;
+  try{ localStorage.setItem(ZOOM_KEY, String(z)); }catch(_){}
+  paintZoom();
+  hideSelButton();
+  if(state.pdf && state.viewPage) showPage(state.viewPage, {keepAnchor:true});
+}
+function stepZoom(dir){
+  const i = ZOOMS.indexOf(state.zoom);
+  setZoom(ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir))]);
+}
+$("#zoomIn").onclick  = ()=>stepZoom(1);
+$("#zoomOut").onclick = ()=>stepZoom(-1);
+$("#zoomLvl").onclick = ()=>setZoom(1);   // 한 번에 제자리로
+
+// 배율은 책을 다시 열어도 유지된다 — 한 번 키운 사람은 계속 크게 본다
+try{
+  const saved = parseFloat(localStorage.getItem(ZOOM_KEY));
+  if(ZOOMS.includes(saved)) state.zoom = saved;
+}catch(_){}
+paintZoom();
 
 // 창 크기가 바뀌면 세 층의 좌표가 어긋나므로 다시 그린다
 let resizeT;
