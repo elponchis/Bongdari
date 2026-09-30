@@ -1196,6 +1196,20 @@ function paintPanHint(){
   if(hint) hint.classList.toggle("hidden", !canPan());
 }
 
+/* Ctrl+휠 · 트랙패드 오므리기는 사람들이 확대할 때 제일 먼저 하는 동작이다.
+   그런데 그건 브라우저 전체 확대라, 쪽은 늘 상자 폭에 맞춰 다시 그려진다 —
+   글자는 커 보여도 종이가 상자보다 넓어지지 않으니 좌우로 밀 것도 생기지 않고,
+   화살표도 할 일이 없어진다. 뷰어 위에서는 그 동작을 이 배율로 돌린다. */
+let wheelZoomAt = 0;
+$("#preview").addEventListener("wheel", e=>{
+  if(!e.ctrlKey || !state.pdf) return;
+  e.preventDefault();
+  const now = Date.now();
+  if(now - wheelZoomAt < 180) return;   // 휠 한 번에 이벤트가 여러 번 들어온다
+  wheelZoomAt = now;
+  stepZoom(e.deltaY < 0 ? 1 : -1);
+}, {passive:false});
+
 $("#zoomIn").onclick  = ()=>stepZoom(1);
 $("#zoomOut").onclick = ()=>stepZoom(-1);
 $("#zoomLvl").onclick = ()=>setZoom(1);   // 한 번에 제자리로
