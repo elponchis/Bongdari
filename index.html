@@ -1124,8 +1124,12 @@ $("#pageScroll").addEventListener("pointerdown", ()=>{
 window.addEventListener("keydown", e=>{
   if(e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;
+  /* 글자를 넣는 칸에서는 커서를 옮기는 키다. 다만 칸이 비어 있으면 옮길 커서가
+     없다 — 책을 열면 검색칸이 초점을 가져가므로(바로 검색할 수 있게), 아무 데도
+     누르지 않은 채 화살표를 누르면 여기서 막혀 쪽이 꿈쩍도 하지 않았다. */
   const t = e.target;
-  if(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if(t && (t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if(t && t.tagName === "INPUT" && t.value !== "") return;
   if(!canPan()) return;
   const pan = $("#pageScroll");
   // 한 번 누르면 보이는 폭의 5분의 1쯤 — 눌렀다는 게 눈에 보일 만큼 움직인다.
