@@ -1122,7 +1122,12 @@ $("#pageScroll").addEventListener("pointerdown", ()=>{
    글자를 넣는 칸에서는 커서를 옮기는 키이므로 건드리지 않고, 쪽이 뷰어 안에
    다 들어와 있을 때도 원래 하던 일을 그대로 하게 둔다. */
 window.addEventListener("keydown", e=>{
-  if(e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  /* 한글 입력기가 켜져 있으면 e.key 가 "Process" 나 "Unidentified" 로 오는
+     브라우저가 있다. 이름만 보고 걸러내면 한국어 자판에서만 화살표가 죽는다.
+     번호(37 왼쪽 / 39 오른쪽)는 그럴 때도 그대로 온다. */
+  const left  = e.key === "ArrowLeft"  || e.keyCode === 37;
+  const right = e.key === "ArrowRight" || e.keyCode === 39;
+  if(!left && !right) return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;
   /* 글자를 넣는 칸에서는 커서를 옮기는 키다. 다만 칸이 비어 있으면 옮길 커서가
      없다 — 책을 열면 검색칸이 초점을 가져가므로(바로 검색할 수 있게), 아무 데도
@@ -1135,9 +1140,35 @@ window.addEventListener("keydown", e=>{
   // 한 번 누르면 보이는 폭의 5분의 1쯤 — 눌렀다는 게 눈에 보일 만큼 움직인다.
   // 다만 꾹 누르면 초당 수십 번 들어오므로 그때는 잘게 쪼개 부드럽게 흐르게 한다.
   const step = e.repeat ? 40 : Math.max(80, Math.round(pan.clientWidth * 0.2));
-  pan.scrollLeft += (e.key === "ArrowLeft" ? -step : step);
+  pan.scrollLeft += (left ? -step : step);
   e.preventDefault();
 }, true);
+
+/* 주소 끝에 ?keys 를 붙이면 누른 키가 어디로 가는지 화면 구석에 보여 준다.
+   "내 브라우저에서만 안 밀린다" 를 눈으로 확인하려고 둔 창구다. */
+if(location.search.indexOf("keys") >= 0){
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:9999;background:#14120e;"
+    + "color:#8ee68e;font:11px/1.6 monospace;padding:8px 10px;border-radius:8px;"
+    + "max-width:92vw;white-space:pre-wrap;pointer-events:none";
+  box.textContent = "화살표를 눌러 보세요";
+  document.body.appendChild(box);
+  const name = el => !el ? "없음" : (el === document.body ? "BODY" : (el.id || el.tagName));
+  let prev = null;   // 직전에 눌렀을 때의 가로 위치 — 움직였는지 눈으로 보려고
+  window.addEventListener("keydown", e=>{
+    const pan = $("#pageScroll");
+    const now = pan ? Math.round(pan.scrollLeft) : -1;
+    box.textContent = [
+      "key=" + e.key + "  keyCode=" + e.keyCode + "  조합중=" + e.isComposing,
+      "초점=" + name(document.activeElement) + "  대상=" + name(e.target),
+      "밀수있나=" + canPan() + "  넘침=" + (pan ? pan.scrollWidth - pan.clientWidth : "-"),
+      "가로: " + (prev === null ? "?" : prev) + " -> " + now,
+    ].join("\n");
+    prev = now;
+    setTimeout(()=>{ if(pan){ const after = Math.round(pan.scrollLeft);
+      box.textContent += "\n0.1초 뒤: " + after; prev = after; } }, 100);
+  }, true);
+}
 
 /* 좌우로 밀 수 있을 때만 그 방법을 알려 준다 */
 function paintPanHint(){
