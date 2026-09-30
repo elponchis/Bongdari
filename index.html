@@ -1099,12 +1099,17 @@ function stepZoom(dir){
    확대하면 쪽이 뷰어보다 넓어지는데, 세로와 달리 가로는 움직일 길이 마땅치 않다 —
    가로 막대는 쪽 맨 아래에 있고, Shift+휠은 아는 사람만 쓴다. 화살표로 민다. */
 
-/* 종이가 뷰어보다 넓어서 밀 데가 있는가. 자리를 픽셀로 못박느라 1~2px 쯤은
-   늘 넘치므로, 그 정도는 넓지 않은 것으로 본다. */
-function canPan(){
-  const pan = $("#pageScroll");
-  return !!pan && pan.scrollWidth - pan.clientWidth > 4;
+/* 가로로 밀 수 있는 상자를 찾는다. 설계상으로는 종이를 감싼 #pageScroll 이지만,
+   창 크기나 브라우저 설정에 따라 실제로 넘치는 쪽이 뷰어나 문서일 수도 있다.
+   화살표는 눈에 보이는 것을 밀어야 하므로, 정말로 넘치는 상자를 고른다.
+   자리를 픽셀로 못박느라 1~2px 는 늘 넘치므로 그 정도는 넘친 것으로 치지 않는다. */
+function panBox(){
+  for(const el of [$("#pageScroll"), $("#preview"), document.scrollingElement]){
+    if(el && el.scrollWidth - el.clientWidth > 4) return el;
+  }
+  return null;
 }
+function canPan(){ return !!panBox(); }
 
 /* 쪽을 누르면 키보드 초점을 쪽 상자로 가져온다 — 누른 곳이 곧 키보드가 가는
    곳이라는 게 사람이 기대하는 바다. 그래야 우리 처리가 무슨 이유로 막히더라도
@@ -1112,8 +1117,8 @@ function canPan(){
    된다(기본 동작을 막지 않는다). 밀 데가 없으면 가져오지 않는다 — 아무 일도
    하지 않을 초점만 남는다. */
 $("#pageScroll").addEventListener("pointerdown", ()=>{
-  if(!canPan()) return;
   const pan = $("#pageScroll");
+  if(pan.scrollWidth - pan.clientWidth <= 4) return;   // 밀 데가 없으면 그냥 둔다
   if(document.activeElement !== pan) pan.focus({preventScroll:true});
 });
 
@@ -1135,8 +1140,8 @@ window.addEventListener("keydown", e=>{
   const t = e.target;
   if(t && (t.tagName === "TEXTAREA" || t.isContentEditable)) return;
   if(t && t.tagName === "INPUT" && t.value !== "") return;
-  if(!canPan()) return;
-  const pan = $("#pageScroll");
+  const pan = panBox();
+  if(!pan) return;
   // 한 번 누르면 보이는 폭의 5분의 1쯤 — 눌렀다는 게 눈에 보일 만큼 움직인다.
   // 다만 꾹 누르면 초당 수십 번 들어오므로 그때는 잘게 쪼개 부드럽게 흐르게 한다.
   const step = e.repeat ? 40 : Math.max(80, Math.round(pan.clientWidth * 0.2));
@@ -1150,18 +1155,33 @@ if(location.search.indexOf("keys") >= 0){
   const box = document.createElement("div");
   box.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:9999;background:#14120e;"
     + "color:#8ee68e;font:11px/1.6 monospace;padding:8px 10px;border-radius:8px;"
-    + "max-width:92vw;white-space:pre-wrap;pointer-events:none";
+    + "max-width:92vw;white-space:pre-wrap;user-select:text;cursor:copy";
+  box.title = "눌러서 복사";
+  box.onclick = ()=>{
+    const t = box.textContent;
+    if(navigator.clipboard) navigator.clipboard.writeText(t).then(
+      ()=>{ box.textContent = t + "\n(복사했습니다)"; }, ()=>{});
+    else{ const r = document.createRange(); r.selectNodeContents(box);
+          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  };
   box.textContent = "화살표를 눌러 보세요";
   document.body.appendChild(box);
   const name = el => !el ? "없음" : (el === document.body ? "BODY" : (el.id || el.tagName));
   let prev = null;   // 직전에 눌렀을 때의 가로 위치 — 움직였는지 눈으로 보려고
   window.addEventListener("keydown", e=>{
-    const pan = $("#pageScroll");
+    const pan = panBox() || $("#pageScroll");
     const now = pan ? Math.round(pan.scrollLeft) : -1;
+    const wh = el => el ? (el.clientWidth + "/" + el.scrollWidth) : "-";
+    const wrap = $("#pageWrap"), cv = $("#pageCanvas");
     box.textContent = [
       "key=" + e.key + "  keyCode=" + e.keyCode + "  조합중=" + e.isComposing,
       "초점=" + name(document.activeElement) + "  대상=" + name(e.target),
-      "밀수있나=" + canPan() + "  넘침=" + (pan ? pan.scrollWidth - pan.clientWidth : "-"),
+      "배율=" + $("#zoomLvl").textContent + "  창=" + innerWidth + "x" + innerHeight
+        + "  dpr=" + (window.devicePixelRatio || 1),
+      "종이상자=" + wh($("#pageScroll")) + "  뷰어=" + wh($("#preview"))
+        + "  문서=" + wh(document.scrollingElement),
+      "종이폭=" + (wrap ? Math.round(wrap.getBoundingClientRect().width) : "-")
+        + "  캔버스=" + (cv ? cv.style.width : "-") + "  미는상자=" + name(pan),
       "가로: " + (prev === null ? "?" : prev) + " -> " + now,
     ].join("\n");
     prev = now;
