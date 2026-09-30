@@ -1095,14 +1095,10 @@ function stepZoom(dir){
   const i = ZOOMS.indexOf(state.zoom);
   setZoom(ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir))]);
 }
-/* 확대하면 쪽이 뷰어보다 넓어지는데, 세로와 달리 가로는 움직일 길이 마땅치 않다 —
-   가로 막대는 쪽 맨 아래에 있고, Shift+휠은 아는 사람만 쓴다. 화살표로 민다.
-   글자를 넣는 칸에서는 커서를 옮기는 키이므로 건드리지 않고, 쪽이 뷰어 안에
-   다 들어와 있을 때도 원래 하던 일을 그대로 하게 둔다. */
-/* 쪽을 누르면 키보드 초점을 쪽 상자로 가져온다 — 누른 곳이 곧 키보드가 가는
-   곳이라는 게 사람이 기대하는 바다. 글자를 고르는 일은 그대로 된다(기본 동작을
-   막지 않는다). 밀 수 없는 크기일 때는 가져오지 않는다 — 아무 일도 하지 않을
-   테두리만 생긴다. */
+/* ---------------- 쪽을 좌우로 밀기 ----------------
+   확대하면 쪽이 뷰어보다 넓어지는데, 세로와 달리 가로는 움직일 길이 마땅치 않다 —
+   가로 막대는 쪽 맨 아래에 있고, Shift+휠은 아는 사람만 쓴다. 화살표로 민다. */
+
 /* 종이가 뷰어보다 넓어서 밀 데가 있는가. 자리를 픽셀로 못박느라 1~2px 쯤은
    늘 넘치므로, 그 정도는 넓지 않은 것으로 본다. */
 function canPan(){
@@ -1110,6 +1106,11 @@ function canPan(){
   return !!pan && pan.scrollWidth - pan.clientWidth > 4;
 }
 
+/* 쪽을 누르면 키보드 초점을 쪽 상자로 가져온다 — 누른 곳이 곧 키보드가 가는
+   곳이라는 게 사람이 기대하는 바다. 그래야 우리 처리가 무슨 이유로 막히더라도
+   브라우저 기본 화살표 스크롤이 같은 상자를 민다. 글자를 고르는 일은 그대로
+   된다(기본 동작을 막지 않는다). 밀 데가 없으면 가져오지 않는다 — 아무 일도
+   하지 않을 초점만 남는다. */
 $("#pageScroll").addEventListener("pointerdown", ()=>{
   if(!canPan()) return;
   const pan = $("#pageScroll");
@@ -1117,7 +1118,9 @@ $("#pageScroll").addEventListener("pointerdown", ()=>{
 });
 
 /* capture 단계에서 먼저 받는다. 중간에서 누군가 화살표를 가로채(stopPropagation)
-   더라도 우리 쪽이 먼저 잡도록 — 확장 프로그램이 흔히 그렇게 한다. */
+   더라도 우리 쪽이 먼저 잡도록 — 확장 프로그램이 흔히 그렇게 한다.
+   글자를 넣는 칸에서는 커서를 옮기는 키이므로 건드리지 않고, 쪽이 뷰어 안에
+   다 들어와 있을 때도 원래 하던 일을 그대로 하게 둔다. */
 window.addEventListener("keydown", e=>{
   if(e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;
