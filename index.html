@@ -158,7 +158,10 @@
   .progress .lbl{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px}
 
   /* ---------- viewer (right panel) ---------- */
-  .preview{flex:1;overflow:auto;padding:0 0 40px;position:relative}
+  /* scrollbar-gutter 가 없으면 세로 막대가 생길 때 안쪽 폭이 15px 쯤 줄어든다.
+     쪽을 그 폭에 맞춰 그린 뒤에 막대가 생기면 쪽이 그만큼 넘쳐서, 확대하지도
+     않았는데 좌우로 밀리는 상태가 된다. 자리를 늘 비워 두면 폭이 흔들리지 않는다. */
+  .preview{flex:1;overflow:auto;scrollbar-gutter:stable;padding:0 0 40px;position:relative}
   .preview .placeholder{
     height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
     color:var(--muted);text-align:center;gap:8px;
@@ -181,7 +184,16 @@
   .vbar .spacer{flex:1}
   .vbar .mnav{display:flex;align-items:center;gap:8px}
   .vbar .mnav .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
-  .vbar .zoom{display:flex;align-items:center;gap:4px}
+  .vbar .zoom{display:flex;align-items:center;gap:4px;border-radius:8px}
+  /* 밀 것이 없는데 화살표를 눌렀을 때 — 찾는 것이 여기 있다고 한 번 알려 준다 */
+  @keyframes zoomNudge{
+    0%,100%{box-shadow:0 0 0 0 rgba(140,105,40,0)}
+    30%,70%{box-shadow:0 0 0 3px var(--bind)}
+  }
+  .vbar .zoom.nudge{animation:zoomNudge 1s ease}
+  @media (prefers-reduced-motion: reduce){
+    .vbar .zoom.nudge{animation:none;box-shadow:0 0 0 3px var(--bind)}
+  }
   .vbar .zoom .lvl{
     font-family:var(--mono);font-size:11px;color:var(--muted);
     min-width:50px;padding:5px 4px;
@@ -1046,9 +1058,14 @@ $("#pgNum").addEventListener("blur",()=>{ $("#pgNum").value = state.viewPage; })
 const ZOOMS = [1, 1.25, 1.5, 2, 2.5, 3];
 const ZOOM_KEY = "bongdari.zoom";
 
-/* 확대하지 않았을 때 쪽이 차지하는 폭에서 나온 배율.
+/* 확대하지 않았을 때(100%) 쪽이 차지하는 폭에서 나온 배율.
    #pageWrap 을 재면 이미 확대된 폭이 되돌아와 배율이 눈덩이처럼 불어난다.
-   그래서 늘 확대와 무관한 뷰어 안쪽 폭을 잰다. */
+   그래서 늘 확대와 무관한 뷰어 안쪽 폭을 잰다.
+
+   예전에는 760px 을 넘지 않게 묶어 뒀었다. 그 탓에 넓은 화면에서는 오른쪽
+   자리를 남겨 두고도 쪽이 작아서, 확대 버튼을 만들기 전부터 "너무 작다"는
+   말이 나왔다. 이제는 뷰어에 있는 만큼 쓴다 — 다만 원래 크기의 두 배까지만
+   키운다(그 이상은 인쇄된 글자가 뭉개진다). */
 function fitScale(baseVp){
   const vb = document.querySelector(".vbody");
   let w = 700;
@@ -1056,7 +1073,7 @@ function fitScale(baseVp){
     const cs = getComputedStyle(vb);
     w = vb.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0) - 2;
   }
-  return Math.min(2, Math.max(240, Math.min(760, w)) / baseVp.width);
+  return Math.min(2, Math.max(240, w) / baseVp.width);
 }
 
 /* 확대·축소해도 보던 자리를 놓치지 않게, 화면 한가운데가 쪽의 어디쯤이었는지
@@ -1141,7 +1158,7 @@ window.addEventListener("keydown", e=>{
   if(t && (t.tagName === "TEXTAREA" || t.isContentEditable)) return;
   if(t && t.tagName === "INPUT" && t.value !== "") return;
   const pan = panBox();
-  if(!pan) return;
+  if(!pan){ nudgeZoom(); return; }   // 밀 것이 없으면 왜 없는지 알려 준다
   // 한 번 누르면 보이는 폭의 5분의 1쯤 — 눌렀다는 게 눈에 보일 만큼 움직인다.
   // 다만 꾹 누르면 초당 수십 번 들어오므로 그때는 잘게 쪼개 부드럽게 흐르게 한다.
   const step = e.repeat ? 40 : Math.max(80, Math.round(pan.clientWidth * 0.2));
@@ -1188,6 +1205,20 @@ if(location.search.indexOf("keys") >= 0){
     setTimeout(()=>{ if(pan){ const after = Math.round(pan.scrollLeft);
       box.textContent += "\n0.1초 뒤: " + after; prev = after; } }, 100);
   }, true);
+}
+
+/* 밀 것이 없는데 화살표를 누르면, 쪽을 키우는 자리가 어디인지 한 번 깜빡인다.
+   아무 일도 일어나지 않으면 고장난 줄로 알기 때문이다 — 실은 쪽이 화면에
+   다 들어와 있어서 밀 데가 없는 것뿐이다. */
+let nudgeT;
+function nudgeZoom(){
+  const z = document.querySelector(".vbar .zoom");
+  if(!z || !state.pdf) return;
+  z.classList.remove("nudge");
+  void z.offsetWidth;                 // 같은 애니메이션을 다시 틀려면 되감아야 한다
+  z.classList.add("nudge");
+  clearTimeout(nudgeT);
+  nudgeT = setTimeout(()=>z.classList.remove("nudge"), 1100);
 }
 
 /* 좌우로 밀 수 있을 때만 그 방법을 알려 준다 */
