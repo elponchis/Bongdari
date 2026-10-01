@@ -185,15 +185,6 @@
   .vbar .mnav{display:flex;align-items:center;gap:8px}
   .vbar .mnav .pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
   .vbar .zoom{display:flex;align-items:center;gap:4px;border-radius:8px}
-  /* 밀 것이 없는데 화살표를 눌렀을 때 — 찾는 것이 여기 있다고 한 번 알려 준다 */
-  @keyframes zoomNudge{
-    0%,100%{box-shadow:0 0 0 0 rgba(140,105,40,0)}
-    30%,70%{box-shadow:0 0 0 3px var(--bind)}
-  }
-  .vbar .zoom.nudge{animation:zoomNudge 1s ease}
-  @media (prefers-reduced-motion: reduce){
-    .vbar .zoom.nudge{animation:none;box-shadow:0 0 0 3px var(--bind)}
-  }
   .vbar .zoom .lvl{
     font-family:var(--mono);font-size:11px;color:var(--muted);
     min-width:50px;padding:5px 4px;
@@ -525,8 +516,7 @@
               </div>
             </div>
             <div class="pagecap" id="pageCap"></div>
-            <div class="hint">문장을 드래그하면 해설 버튼이 나타납니다 · 텍스트 선택·복사도 됩니다<span
-              id="panHint" class="hidden"> · 확대한 쪽은 <b>←</b>&nbsp;<b>→</b>&nbsp;로 좌우로 밀립니다</span></div>
+            <div class="hint">문장을 드래그하면 해설 버튼이 나타납니다 · 텍스트 선택·복사도 됩니다<span id="panHint" class="hidden"></span></div>
           </div>
         </div>
       </div>
@@ -1157,13 +1147,34 @@ window.addEventListener("keydown", e=>{
   const t = e.target;
   if(t && (t.tagName === "TEXTAREA" || t.isContentEditable)) return;
   if(t && t.tagName === "INPUT" && t.value !== "") return;
+  const dir = left ? -1 : 1;
   const pan = panBox();
-  if(!pan){ nudgeZoom(); return; }   // 밀 것이 없으면 왜 없는지 알려 준다
-  // 한 번 누르면 보이는 폭의 5분의 1쯤 — 눌렀다는 게 눈에 보일 만큼 움직인다.
-  // 다만 꾹 누르면 초당 수십 번 들어오므로 그때는 잘게 쪼개 부드럽게 흐르게 한다.
-  const step = e.repeat ? 40 : Math.max(80, Math.round(pan.clientWidth * 0.2));
-  pan.scrollLeft += (left ? -step : step);
+
+  /* 밀 데가 남아 있으면 민다.
+     한 번 누르면 보이는 폭의 5분의 1쯤 — 눌렀다는 게 눈에 보일 만큼 움직인다.
+     다만 꾹 누르면 초당 수십 번 들어오므로 그때는 잘게 쪼개 부드럽게 흐르게 한다. */
+  if(pan){
+    const max = pan.scrollWidth - pan.clientWidth;
+    const atEdge = dir < 0 ? pan.scrollLeft <= 1 : pan.scrollLeft >= max - 1;
+    if(!atEdge){
+      const step = e.repeat ? 40 : Math.max(80, Math.round(pan.clientWidth * 0.2));
+      pan.scrollLeft += dir * step;
+      e.preventDefault();
+      return;
+    }
+  }
+
+  /* 밀 데가 없거나 끝까지 밀었으면 쪽을 넘긴다. 위아래가 쪽 안을 훑는 키라면
+     좌우는 쪽과 쪽 사이를 옮기는 키다 — 종이책을 넘기는 방향 그대로. */
+  if(!state.pdf || state.rendering) return;
+  const n = state.viewPage + dir;
+  if(n < 1 || n > state.pdf.numPages) return;
   e.preventDefault();
+  showPage(n).then(()=>{
+    const p = $("#pageScroll");
+    // 다음 쪽은 왼쪽부터, 이전 쪽은 오른쪽 끝부터 — 읽던 방향이 이어진다
+    if(p) p.scrollLeft = dir > 0 ? 0 : p.scrollWidth;
+  });
 }, true);
 
 /* 주소 끝에 ?keys 를 붙이면 누른 키가 어디로 가는지 화면 구석에 보여 준다.
@@ -1207,24 +1218,15 @@ if(location.search.indexOf("keys") >= 0){
   }, true);
 }
 
-/* 밀 것이 없는데 화살표를 누르면, 쪽을 키우는 자리가 어디인지 한 번 깜빡인다.
-   아무 일도 일어나지 않으면 고장난 줄로 알기 때문이다 — 실은 쪽이 화면에
-   다 들어와 있어서 밀 데가 없는 것뿐이다. */
-let nudgeT;
-function nudgeZoom(){
-  const z = document.querySelector(".vbar .zoom");
-  if(!z || !state.pdf) return;
-  z.classList.remove("nudge");
-  void z.offsetWidth;                 // 같은 애니메이션을 다시 틀려면 되감아야 한다
-  z.classList.add("nudge");
-  clearTimeout(nudgeT);
-  nudgeT = setTimeout(()=>z.classList.remove("nudge"), 1100);
-}
-
-/* 좌우로 밀 수 있을 때만 그 방법을 알려 준다 */
+/* 화살표가 지금 무슨 일을 하는지 쪽 아래에 적어 둔다 — 상태에 따라 달라지므로
+   가만히 둘 수 없다. 책을 열기 전에는 할 말이 없으니 숨긴다. */
 function paintPanHint(){
   const hint = $("#panHint");
-  if(hint) hint.classList.toggle("hidden", !canPan());
+  if(!hint) return;
+  hint.classList.toggle("hidden", !state.pdf);
+  hint.textContent = canPan()
+    ? " · ← → 로 쪽을 좌우로 밀고, 끝에서 한 번 더 누르면 쪽이 넘어갑니다"
+    : " · ← → 로 쪽을 넘깁니다";
 }
 
 /* Ctrl+휠 · 트랙패드 오므리기는 사람들이 확대할 때 제일 먼저 하는 동작이다.
